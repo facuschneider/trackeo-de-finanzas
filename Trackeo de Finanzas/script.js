@@ -1,30 +1,197 @@
+/* ═══════════════════════════════════════════════════════════
+   Gastos Familiares — Supabase backend
+   ═══════════════════════════════════════════════════════════ */
+
+const SUPABASE_URL = 'https://uboabckurhvfopibbbeo.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVib2FiY2t1cmh2Zm9waWJiYmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTcyNjgsImV4cCI6MjEwMDc3MzI2OH0.SoC89tyqBmGqDspVfy5SE7655fDUAt7edaoM7TKWoj8';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const CATEGORY_LABELS = {
+    'Alimentación': '🍽 Alimentación',
+    'Transporte':   '🚌 Transporte',
+    'Compras':      '🛍 Compras',
+    'Departamento': '🏠 Departamento',
+    'Ferretería':   '🔧 Ferretería',
+    'Otro':         '📦 Otro',
+};
+
+/* ─── State ────────────────────────────────────────── */
+let expenses  = [];
+let incomes  = [];
+let cards    = [];
+let purchases = [];
+let editingExpenseId   = null;
+let deletingExpenseId  = null;
+let editingPurchaseId  = null;
+let deletingPurchaseId = null;
+let deletingCardId     = null;
+
+/* ─── DOM: Expenses ────────────────────────────────── */
 const expenseTable        = document.getElementById('expense-table');
-const totalExpenseDisplay = document.getElementById('total-expense');
 const categoryFilter      = document.getElementById('category-filter');
 const addExpenseButton    = document.getElementById('add-expense');
 const expenseName         = document.getElementById('expense-name');
 const expenseAmount       = document.getElementById('expense-amount');
 const expenseCategory     = document.getElementById('expense-category');
+const expenseSource       = document.getElementById('expense-source');
 const expenseDate         = document.getElementById('expense-date');
 
-// Category labels for display
-const CATEGORY_LABELS = {
-    'Alimentación': '🍽 Alimentación',
-    'Transporte':   '🚌 Transporte',
-    'Compras':      '🛍 Compras',
-    'Otro':         '📦 Otro',
-    // Legacy support for old English values
-    'Food':      '🍽 Alimentación',
-    'Transport': '🚌 Transporte',
-    'Shopping':  '🛍 Compras',
-    'Other':     '📦 Otro',
-};
+/* ─── DOM: Incomes ─────────────────────────────────── */
+const incomePapaInput = document.getElementById('income-papa');
+const incomeMamaInput = document.getElementById('income-mama');
 
-let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
-let editingExpenseId  = null;
-let deletingExpenseId = null;
+/* ─── DOM: Cards ───────────────────────────────────── */
+const cardsListEl       = document.getElementById('cards-list');
+const newCardNameInput  = document.getElementById('new-card-name');
+const newCardCloseInput = document.getElementById('new-card-close-day');
+const addCardBtn        = document.getElementById('add-card');
 
-/* ─── Render ───────────────────────────────────────── */
+/* ─── DOM: Purchases ───────────────────────────────── */
+const purchaseNameInput         = document.getElementById('purchase-name');
+const purchaseAmountInput       = document.getElementById('purchase-amount');
+const purchaseInstallmentsInput = document.getElementById('purchase-installments');
+const purchasePaidInput         = document.getElementById('purchase-paid');
+const purchaseCardSelect        = document.getElementById('purchase-card');
+const purchaseDateInput         = document.getElementById('purchase-date');
+const firstInstallmentDateInput = document.getElementById('first-installment-date');
+const addPurchaseBtn            = document.getElementById('add-purchase');
+const installmentsListEl        = document.getElementById('installments-list');
+const cardSummaryEl            = document.getElementById('card-summary');
+
+/* ─── DOM: Summary ────────────────────────────────── */
+const totalBalanceEl    = document.getElementById('total-balance');
+const totalIncomesEl    = document.getElementById('total-incomes');
+const totalExpensesPaidEl = document.getElementById('total-expenses-paid');
+
+/* ═══════════════════════════════════════════════════════════
+   DATA LOADING
+   ═══════════════════════════════════════════════════════════ */
+
+async function loadAll() {
+    const [expRes, incRes, cardRes, purRes] = await Promise.all([
+        supabase.from('expenses').select('*').order('date', { ascending: false }),
+        supabase.from('incomes').select('*').order('id'),
+        supabase.from('cards').select('*').order('id'),
+        supabase.from('card_purchases').select('*').order('created_at', { ascending: false }),
+    ]);
+
+    if (expRes.error)  { console.error('expenses:', expRes.error);  return; }
+    if (incRes.error)  { console.error('incomes:', incRes.error);  return; }
+    if (cardRes.error) { console.error('cards:', cardRes.error);   return; }
+    if (purRes.error)  { console.error('card_purchases:', purRes.error); return; }
+
+    expenses  = expRes.data  || [];
+    incomes  = incRes.data  || [];
+    cards    = cardRes.data || [];
+    purchases = purRes.data || [];
+
+    renderIncomes();
+    renderCards();
+    renderCardSelectors();
+    updateUI();
+    renderInstallments();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INCOMES
+   ═══════════════════════════════════════════════════════════ */
+
+function renderIncomes() {
+    const papa = incomes.find(i => i.label === 'Sueldo Papá');
+    const mama = incomes.find(i => i.label === 'Sueldo Mamá');
+    incomePapaInput.value = papa ? papa.amount : 0;
+    incomeMamaInput.value = mama ? mama.amount : 0;
+    updateBalanceSummary();
+}
+
+async function saveIncome(label, amount) {
+    const existing = incomes.find(i => i.label === label);
+    if (existing) {
+        const { error } = await supabase
+            .from('incomes')
+            .update({ amount, updated_at: new Date().toISOString() })
+            .eq('id', existing.id);
+        if (error) { console.error(error); return; }
+        existing.amount = amount;
+    } else {
+        const { data, error } = await supabase
+            .from('incomes')
+            .insert({ label, amount })
+            .select();
+        if (error) { console.error(error); return; }
+        incomes.push(data[0]);
+    }
+    updateBalanceSummary();
+}
+
+let incomeSaveTimer = null;
+function scheduleIncomeSave() {
+    clearTimeout(incomeSaveTimer);
+    incomeSaveTimer = setTimeout(async () => {
+        const papa = parseFloat(incomePapaInput.value) || 0;
+        const mama = parseFloat(incomeMamaInput.value) || 0;
+        await saveIncome('Sueldo Papá', papa);
+        await saveIncome('Sueldo Mamá', mama);
+    }, 600);
+}
+
+incomePapaInput.addEventListener('input', scheduleIncomeSave);
+incomeMamaInput.addEventListener('input', scheduleIncomeSave);
+
+function updateBalanceSummary() {
+    const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
+    const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+    const balance  = totalInc - totalExp;
+    totalIncomesEl.textContent      = totalInc.toFixed(2);
+    totalExpensesPaidEl.textContent = totalExp.toFixed(2);
+    totalBalanceEl.textContent      = balance.toFixed(2);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXPENSES
+   ═══════════════════════════════════════════════════════════ */
+
+function checkInputs() {
+    const valid = expenseName.value.trim() &&
+                  expenseAmount.value &&
+                  parseFloat(expenseAmount.value) > 0 &&
+                  expenseCategory.value &&
+                  expenseSource.value &&
+                  expenseDate.value;
+    addExpenseButton.disabled = !valid;
+}
+
+[expenseName, expenseAmount, expenseCategory, expenseSource, expenseDate].forEach(el => {
+    el.addEventListener('input', checkInputs);
+});
+
+addExpenseButton.addEventListener('click', async () => {
+    const name     = expenseName.value.trim();
+    const amount   = parseFloat(expenseAmount.value);
+    const category = expenseCategory.value;
+    const source   = expenseSource.value;
+    const date     = expenseDate.value;
+    if (!name || isNaN(amount) || amount <= 0 || !category || !source || !date) return;
+
+    const { data, error } = await supabase
+        .from('expenses')
+        .insert({ name, amount, category, source, date })
+        .select();
+    if (error) { console.error(error); return; }
+
+    expenses.unshift(data[0]);
+
+    expenseName.value   = '';
+    expenseAmount.value = '';
+    expenseCategory.value = '';
+    expenseSource.value = '';
+    expenseDate.value   = '';
+    addExpenseButton.disabled = true;
+
+    updateUI();
+    updateBalanceSummary();
+});
+
 function updateUI() {
     const filterValue = categoryFilter.value;
     const filtered = filterValue === 'All'
@@ -37,7 +204,7 @@ function updateUI() {
         const row = document.createElement('tr');
         row.className = 'empty-row';
         row.innerHTML = `
-            <td colspan="5">
+            <td colspan="6">
                 <span class="empty-icon">📋</span>
                 Sin gastos registrados. ¡Agrega el primero!
             </td>`;
@@ -47,10 +214,14 @@ function updateUI() {
             const row = document.createElement('tr');
             const label = CATEGORY_LABELS[expense.category] || expense.category;
             const dateFormatted = formatDate(expense.date);
+            const sourceHtml = expense.source
+                ? `<span class="source-pill">${escapeHtml(expense.source)}</span>`
+                : '—';
             row.innerHTML = `
                 <td>${escapeHtml(expense.name)}</td>
                 <td class="amount-cell">$${expense.amount.toFixed(2)}</td>
                 <td><span class="category-pill">${label}</span></td>
+                <td>${sourceHtml}</td>
                 <td>${dateFormatted}</td>
                 <td>
                     <div class="action-cell">
@@ -62,105 +233,467 @@ function updateUI() {
         });
     }
 
-    // Total of filtered expenses
     const total = filtered.reduce((sum, e) => sum + e.amount, 0);
-    totalExpenseDisplay.textContent = total.toFixed(2);
+    updateBalanceSummary();
 }
 
-/* ─── Helpers ──────────────────────────────────────── */
-function formatDate(dateStr) {
-    if (!dateStr) return '—';
-    const [y, m, d] = dateStr.split('-');
-    return `${d}/${m}/${y}`;
-}
-
-function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-/* ─── Input validation ─────────────────────────────── */
-function checkInputs() {
-    const valid = expenseName.value.trim() &&
-                  expenseAmount.value &&
-                  parseFloat(expenseAmount.value) > 0 &&
-                  expenseCategory.value &&
-                  expenseDate.value;
-    addExpenseButton.disabled = !valid;
-}
-
-[expenseName, expenseAmount, expenseCategory, expenseDate].forEach(el => {
-    el.addEventListener('input', checkInputs);
-});
-
-/* ─── Add expense ──────────────────────────────────── */
-addExpenseButton.addEventListener('click', () => {
-    const name     = expenseName.value.trim();
-    const amount   = parseFloat(expenseAmount.value);
-    const category = expenseCategory.value;
-    const date     = expenseDate.value;
-
-    if (!name || isNaN(amount) || amount <= 0 || !category || !date) return;
-
-    expenses.push({ id: Date.now(), name, amount, category, date });
-    localStorage.setItem('expenses', JSON.stringify(expenses));
-
-    expenseName.value   = '';
-    expenseAmount.value = '';
-    expenseCategory.value = '';
-    expenseDate.value   = '';
-    addExpenseButton.disabled = true;
-
-    updateUI();
-});
-
-/* ─── Edit modal ───────────────────────────────────── */
-function openEditModal(id) {
+/* ─── Edit expense ────────────────────────────────── */
+window.openEditModal = async function(id) {
     const expense = expenses.find(e => e.id === id);
     if (!expense) return;
 
     document.getElementById('edit-expense-name').value     = expense.name;
-    document.getElementById('edit-expense-amount').value   = expense.amount;
-    document.getElementById('edit-expense-category').value = expense.category;
-    document.getElementById('edit-expense-date').value     = expense.date;
+    document.getElementById('edit-expense-amount').value    = expense.amount;
+    document.getElementById('edit-expense-category').value  = expense.category;
+    document.getElementById('edit-expense-source').value   = expense.source || '';
+    document.getElementById('edit-expense-date').value      = expense.date;
 
     editingExpenseId = id;
     openModal('edit-modal');
-}
+};
 
-document.getElementById('confirm-edit').addEventListener('click', () => {
+document.getElementById('confirm-edit').addEventListener('click', async () => {
     const name     = document.getElementById('edit-expense-name').value.trim();
     const amount   = parseFloat(document.getElementById('edit-expense-amount').value);
     const category = document.getElementById('edit-expense-category').value;
+    const source   = document.getElementById('edit-expense-source').value;
     const date     = document.getElementById('edit-expense-date').value;
 
-    if (!name || isNaN(amount) || amount <= 0 || !category || !date) {
+    if (!name || isNaN(amount) || amount <= 0 || !category || !source || !date) {
         alert('Por favor completa todos los campos.');
         return;
     }
 
+    const { error } = await supabase
+        .from('expenses')
+        .update({ name, amount, category, source, date })
+        .eq('id', editingExpenseId);
+    if (error) { console.error(error); return; }
+
     const index = expenses.findIndex(e => e.id === editingExpenseId);
     if (index > -1) {
-        expenses[index] = { id: editingExpenseId, name, amount, category, date };
-        localStorage.setItem('expenses', JSON.stringify(expenses));
-        updateUI();
+        expenses[index] = { ...expenses[index], name, amount, category, source, date };
     }
     closeModal('edit-modal');
+    updateUI();
+    updateBalanceSummary();
 });
 
-/* ─── Delete modal ─────────────────────────────────── */
-function openDeleteModal(id) {
+/* ─── Delete expense ───────────────────────────────── */
+window.openDeleteModal = function(id) {
     deletingExpenseId = id;
     openModal('delete-modal');
-}
+};
 
-document.getElementById('confirm-delete').addEventListener('click', () => {
+document.getElementById('confirm-delete').addEventListener('click', async () => {
+    const { error } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('id', deletingExpenseId);
+    if (error) { console.error(error); return; }
+
     expenses = expenses.filter(e => e.id !== deletingExpenseId);
-    localStorage.setItem('expenses', JSON.stringify(expenses));
-    updateUI();
     closeModal('delete-modal');
+    updateUI();
+    updateBalanceSummary();
 });
 
-/* ─── Modal helpers ────────────────────────────────── */
+categoryFilter.addEventListener('change', updateUI);
+
+/* ═══════════════════════════════════════════════════════════
+   CREDIT CARDS
+   ═══════════════════════════════════════════════════════════ */
+
+function renderCards() {
+    cardsListEl.innerHTML = '';
+    cards.forEach(card => {
+        const chip = document.createElement('div');
+        chip.className = 'card-chip';
+        chip.innerHTML = `
+            <span class="card-chip-name">${escapeHtml(card.name)}</span>
+            <span class="card-chip-close">cierre día ${card.close_day}</span>
+            <button class="card-chip-remove" title="Eliminar tarjeta" onclick="openDeleteCardModal(${card.id})">×</button>`;
+        cardsListEl.appendChild(chip);
+    });
+}
+
+function renderCardSelectors() {
+    const optionsHtml = '<option value="" disabled selected>Tarjeta</option>' +
+        cards.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    purchaseCardSelect.innerHTML = optionsHtml;
+    const editCardSelect = document.getElementById('edit-purchase-card');
+    if (editCardSelect) editCardSelect.innerHTML = optionsHtml;
+}
+
+/* ─── Add card ─────────────────────────────────────── */
+function checkCardInputs() {
+    addCardBtn.disabled = !newCardNameInput.value.trim() || !newCardCloseInput.value;
+}
+newCardNameInput.addEventListener('input', checkCardInputs);
+newCardCloseInput.addEventListener('input', checkCardInputs);
+
+addCardBtn.addEventListener('click', async () => {
+    const name     = newCardNameInput.value.trim();
+    const closeDay = parseInt(newCardCloseInput.value, 10);
+    if (!name || !closeDay || closeDay < 1 || closeDay > 31) return;
+
+    const { data, error } = await supabase
+        .from('cards')
+        .insert({ name, close_day: closeDay })
+        .select();
+    if (error) { console.error(error); return; }
+
+    cards.push(data[0]);
+    newCardNameInput.value  = '';
+    newCardCloseInput.value = '';
+    addCardBtn.disabled = true;
+
+    renderCards();
+    renderCardSelectors();
+});
+
+/* ─── Delete card ───────────────────────────────────── */
+window.openDeleteCardModal = function(id) {
+    deletingCardId = id;
+    openModal('delete-card-modal');
+};
+
+document.getElementById('confirm-delete-card').addEventListener('click', async () => {
+    const { error } = await supabase
+        .from('cards')
+        .delete()
+        .eq('id', deletingCardId);
+    if (error) { console.error(error); return; }
+
+    cards = cards.filter(c => c.id !== deletingCardId);
+    // Purchases with this card_id will have card_id = NULL (ON DELETE SET NULL)
+    purchases.forEach(p => { if (p.card_id === deletingCardId) p.card_id = null; });
+
+    closeModal('delete-card-modal');
+    renderCards();
+    renderCardSelectors();
+    renderInstallments();
+});
+
+/* ═══════════════════════════════════════════════════════════
+   INSTALLMENT PURCHASES
+   ═══════════════════════════════════════════════════════════ */
+
+function checkPurchaseInputs() {
+    const installments = parseInt(purchaseInstallmentsInput.value, 10) || 0;
+    const paid = parseInt(purchasePaidInput.value, 10) || 0;
+    const valid = purchaseNameInput.value.trim() &&
+                  purchaseAmountInput.value &&
+                  parseFloat(purchaseAmountInput.value) > 0 &&
+                  installments > 0 &&
+                  paid >= 0 && paid <= installments &&
+                  purchaseCardSelect.value &&
+                  purchaseDateInput.value &&
+                  firstInstallmentDateInput.value;
+    addPurchaseBtn.disabled = !valid;
+}
+
+[purchaseNameInput, purchaseAmountInput, purchaseInstallmentsInput, purchasePaidInput, purchaseCardSelect, purchaseDateInput, firstInstallmentDateInput]
+    .forEach(el => el.addEventListener('input', checkPurchaseInputs));
+
+addPurchaseBtn.addEventListener('click', async () => {
+    const name         = purchaseNameInput.value.trim();
+    const amount       = parseFloat(purchaseAmountInput.value);
+    const installments = parseInt(purchaseInstallmentsInput.value, 10);
+    const paidCount    = parseInt(purchasePaidInput.value, 10) || 0;
+    const cardId       = parseInt(purchaseCardSelect.value, 10);
+    const purchaseDate = purchaseDateInput.value;
+    const firstDate    = firstInstallmentDateInput.value;
+
+    if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !cardId || !purchaseDate || !firstDate) return;
+
+    const { data, error } = await supabase
+        .from('card_purchases')
+        .insert({
+            name,
+            amount,
+            installments,
+            paidCount: Math.min(paidCount, installments),
+            card_id: cardId,
+            purchaseDate,
+            firstInstallmentDate: firstDate,
+        })
+        .select();
+    if (error) { console.error(error); return; }
+
+    purchases.unshift(data[0]);
+
+    purchaseNameInput.value         = '';
+    purchaseAmountInput.value       = '';
+    purchaseInstallmentsInput.value = '';
+    purchasePaidInput.value         = '';
+    purchaseCardSelect.value        = '';
+    purchaseDateInput.value         = '';
+    firstInstallmentDateInput.value = '';
+    addPurchaseBtn.disabled = true;
+
+    renderInstallments();
+});
+
+/* ─── Render installments grouped by card ───────────── */
+function renderInstallments() {
+    installmentsListEl.innerHTML = '';
+
+    if (purchases.length === 0) {
+        installmentsListEl.innerHTML = `
+            <div class="installment-empty">
+                <span class="empty-icon">💳</span>
+                Sin compras en cuotas. ¡Agrega la primera!
+            </div>`;
+        cardSummaryEl.innerHTML = '';
+        return;
+    }
+
+    let grandMonthly = 0;
+    let grandRemaining = 0;
+
+    // Group purchases by card; unassigned purchases go under "Sin tarjeta"
+    const grouped = {};
+    purchases.forEach(p => {
+        const key = p.card_id || 'none';
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(p);
+    });
+
+    // Render each card group
+    cards.forEach(card => {
+        const cardPurchases = grouped[card.id] || [];
+        if (cardPurchases.length === 0) return;
+
+        let cardMonthly = 0;
+        let cardRemaining = 0;
+
+        const header = document.createElement('div');
+        header.className = 'card-group-header';
+        header.innerHTML = `💳 ${escapeHtml(card.name)} <span class="card-group-summary">cierre día ${card.close_day}</span>`;
+        installmentsListEl.appendChild(header);
+
+        cardPurchases.forEach(p => {
+            const stats = renderPurchaseItem(p);
+            cardMonthly += stats.monthly;
+            cardRemaining += stats.remaining;
+            installmentsListEl.appendChild(stats.el);
+        });
+
+        const summary = document.createElement('div');
+        summary.className = 'card-group-header';
+        summary.style.borderTop = '1px solid var(--border)';
+        summary.style.borderBottom = 'none';
+        summary.style.marginTop = '8px';
+        summary.innerHTML = `<span style="font-weight:400;color:var(--muted);font-size:13px;">Total ${escapeHtml(card.name)}: cuota mensual $${cardMonthly.toFixed(2)} · saldo $${cardRemaining.toFixed(2)}</span>`;
+        installmentsListEl.appendChild(summary);
+
+        grandMonthly += cardMonthly;
+        grandRemaining += cardRemaining;
+    });
+
+    // Unassigned purchases
+    if (grouped['none'] && grouped['none'].length > 0) {
+        const header = document.createElement('div');
+        header.className = 'card-group-header';
+        header.innerHTML = `💳 Sin tarjeta asignada`;
+        installmentsListEl.appendChild(header);
+
+        let noneMonthly = 0, noneRemaining = 0;
+        grouped['none'].forEach(p => {
+            const stats = renderPurchaseItem(p);
+            noneMonthly += stats.monthly;
+            noneRemaining += stats.remaining;
+            installmentsListEl.appendChild(stats.el);
+        });
+
+        const summary = document.createElement('div');
+        summary.className = 'card-group-header';
+        summary.style.borderTop = '1px solid var(--border)';
+        summary.style.borderBottom = 'none';
+        summary.style.marginTop = '8px';
+        summary.innerHTML = `<span style="font-weight:400;color:var(--muted);font-size:13px;">Total sin tarjeta: cuota mensual $${noneMonthly.toFixed(2)} · saldo $${noneRemaining.toFixed(2)}</span>`;
+        installmentsListEl.appendChild(summary);
+
+        grandMonthly += noneMonthly;
+        grandRemaining += noneRemaining;
+    }
+
+    cardSummaryEl.innerHTML = `Total general: cuota mensual <strong>$${grandMonthly.toFixed(2)}</strong> · saldo <strong>$${grandRemaining.toFixed(2)}</strong>`;
+}
+
+function renderPurchaseItem(p) {
+    const installmentAmount = p.amount / p.installments;
+    const remaining = p.installments - p.paidCount;
+    const monthly = installmentAmount;
+    const remainingTotal = installmentAmount * remaining;
+
+    const isComplete = p.paidCount >= p.installments;
+    const progressPct = (p.paidCount / p.installments) * 100;
+
+    let boxesHtml = '';
+    for (let i = 0; i < p.installments; i++) {
+        const dueDate = addMonths(p.firstInstallmentDate, i);
+        const isPaid = i < p.paidCount;
+        const isCurrent = i === p.paidCount && !isComplete;
+        boxesHtml += `
+            <div class="box-wrap">
+                <div class="box ${isPaid ? 'paid' : ''} ${isCurrent ? 'current' : ''}"
+                     onclick="toggleInstallmentPaid(${p.id}, ${i})"
+                     title="Cuota ${i + 1} — ${monthLabel(dueDate)}">
+                    ${i + 1}
+                </div>
+                <span class="box-label">${monthLabel(dueDate).slice(0, 3)}</span>
+            </div>`;
+    }
+
+    const cardName = p.card_id ? (cards.find(c => c.id === p.card_id)?.name || '—') : '—';
+
+    const item = document.createElement('div');
+    item.className = 'installment-item' + (isComplete ? ' is-complete' : '');
+    item.innerHTML = `
+        <div class="installment-head">
+            <div>
+                <div class="installment-title">${escapeHtml(p.name)}</div>
+                <div class="installment-meta">
+                    <span>Total: <strong>$${p.amount.toFixed(2)}</strong></span>
+                    <span>Cuota: <strong>$${installmentAmount.toFixed(2)}</strong></span>
+                    <span>Tarjeta: <strong>${escapeHtml(cardName)}</strong></span>
+                    <span>Comprado: <strong>${formatDate(p.purchaseDate)}</strong></span>
+                    <span>1ª cuota: <strong>${formatDate(p.firstInstallmentDate)}</strong></span>
+                </div>
+            </div>
+            <div class="installment-actions">
+                <button class="icon-btn edit" title="Editar" onclick="openEditPurchaseModal(${p.id})">✏️</button>
+                <button class="icon-btn delete" title="Eliminar" onclick="openDeletePurchaseModal(${p.id})">🗑️</button>
+            </div>
+        </div>
+        <div class="installment-progress">
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progressPct}%"></div>
+            </div>
+            <div class="progress-label">
+                <span>Cuota ${p.paidCount} de ${p.installments}</span>
+                <span class="paid">${isComplete ? 'Completo' : `Faltan ${remaining}`}</span>
+            </div>
+        </div>
+        <div class="installment-boxes">${boxesHtml}</div>`;
+
+    return { el: item, monthly, remaining: remainingTotal };
+}
+
+/* ─── Toggle installment paid ───────────────────────── */
+window.toggleInstallmentPaid = async function(purchaseId, boxIndex) {
+    const p = purchases.find(x => x.id === purchaseId);
+    if (!p) return;
+
+    let newPaidCount = p.paidCount;
+    if (boxIndex < p.paidCount) {
+        if (boxIndex === p.paidCount - 1) newPaidCount = p.paidCount - 1;
+        else return;
+    } else if (boxIndex === p.paidCount) {
+        newPaidCount = p.paidCount + 1;
+    } else {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('card_purchases')
+        .update({ paidCount: newPaidCount })
+        .eq('id', purchaseId);
+    if (error) { console.error(error); return; }
+
+    p.paidCount = newPaidCount;
+    renderInstallments();
+};
+
+/* ─── Edit purchase ─────────────────────────────────── */
+window.openEditPurchaseModal = function(id) {
+    const p = purchases.find(x => x.id === id);
+    if (!p) return;
+
+    document.getElementById('edit-purchase-name').value         = p.name;
+    document.getElementById('edit-purchase-amount').value     = p.amount;
+    document.getElementById('edit-purchase-installments').value = p.installments;
+    document.getElementById('edit-purchase-paid').value        = p.paidCount;
+    document.getElementById('edit-purchase-date').value        = p.purchaseDate;
+    document.getElementById('edit-first-installment-date').value = p.firstInstallmentDate;
+
+    const editCardSelect = document.getElementById('edit-purchase-card');
+    if (p.card_id) editCardSelect.value = p.card_id;
+    else editCardSelect.value = '';
+
+    editingPurchaseId = id;
+    openModal('edit-purchase-modal');
+};
+
+document.getElementById('confirm-edit-purchase').addEventListener('click', async () => {
+    const name         = document.getElementById('edit-purchase-name').value.trim();
+    const amount       = parseFloat(document.getElementById('edit-purchase-amount').value);
+    const installments = parseInt(document.getElementById('edit-purchase-installments').value, 10);
+    const paidCount    = parseInt(document.getElementById('edit-purchase-paid').value, 10) || 0;
+    const cardId       = parseInt(document.getElementById('edit-purchase-card').value, 10) || null;
+    const purchaseDate = document.getElementById('edit-purchase-date').value;
+    const firstDate    = document.getElementById('edit-first-installment-date').value;
+
+    if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !purchaseDate || !firstDate) {
+        alert('Por favor completa todos los campos.');
+        return;
+    }
+
+    const clampedPaid = Math.min(paidCount, installments);
+
+    const { error } = await supabase
+        .from('card_purchases')
+        .update({
+            name, amount, installments,
+            paidCount: clampedPaid,
+            card_id: cardId,
+            purchaseDate,
+            firstInstallmentDate: firstDate,
+        })
+        .eq('id', editingPurchaseId);
+    if (error) { console.error(error); return; }
+
+    const index = purchases.findIndex(x => x.id === editingPurchaseId);
+    if (index > -1) {
+        purchases[index] = { ...purchases[index], name, amount, installments, paidCount: clampedPaid, card_id: cardId, purchaseDate, firstInstallmentDate: firstDate };
+    }
+    closeModal('edit-purchase-modal');
+    renderInstallments();
+});
+
+/* ─── Delete purchase ───────────────────────────────── */
+window.openDeletePurchaseModal = function(id) {
+    deletingPurchaseId = id;
+    openModal('delete-purchase-modal');
+};
+
+document.getElementById('confirm-delete-purchase').addEventListener('click', async () => {
+    const { error } = await supabase
+        .from('card_purchases')
+        .delete()
+        .eq('id', deletingPurchaseId);
+    if (error) { console.error(error); return; }
+
+    purchases = purchases.filter(x => x.id !== deletingPurchaseId);
+    closeModal('delete-purchase-modal');
+    renderInstallments();
+});
+
+/* ═══════════════════════════════════════════════════════════
+   TABS & MODALS
+   ═══════════════════════════════════════════════════════════ */
+
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+});
+
 function openModal(id) {
     const el = document.getElementById(id);
     el.classList.add('is-open');
@@ -177,97 +710,26 @@ function backdropClose(e) {
     if (e.target === e.currentTarget) closeModal(e.currentTarget.id);
 }
 
-// Close modals with Escape key
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
-        ['edit-modal', 'delete-modal', 'edit-purchase-modal', 'delete-purchase-modal'].forEach(closeModal);
+        ['edit-modal', 'delete-modal', 'edit-purchase-modal', 'delete-purchase-modal', 'delete-card-modal'].forEach(closeModal);
     }
 });
-
-/* ─── Category filter ──────────────────────────────── */
-categoryFilter.addEventListener('change', updateUI);
-
-/* ─── Init ─────────────────────────────────────────── */
-updateUI();
 
 /* ═══════════════════════════════════════════════════════════
-   CREDIT CARD INSTALLMENT TRACKER
+   HELPERS
    ═══════════════════════════════════════════════════════════ */
 
-// ─── Tab switching ───────────────────────────────────
-document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-    });
-});
-
-// ─── Card settings ──────────────────────────────────
-const cardCloseDayInput   = document.getElementById('card-close-day');
-const saveCardSettingsBtn = document.getElementById('save-card-settings');
-const cardSettingsHint    = document.getElementById('card-settings-hint');
-
-let cardSettings = JSON.parse(localStorage.getItem('cardSettings')) || { closeDay: null };
-
-function renderCardSettings() {
-    if (cardSettings.closeDay) {
-        cardCloseDayInput.value = cardSettings.closeDay;
-        cardSettingsHint.textContent = `El resumen cierra el día ${cardSettings.closeDay} de cada mes.`;
-    } else {
-        cardSettingsHint.textContent = 'Aún no configuraste el día de cierre.';
-    }
+function formatDate(dateStr) {
+    if (!dateStr) return '—';
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
 }
 
-function checkCardSettingsInput() {
-    saveCardSettingsBtn.disabled = !cardCloseDayInput.value;
+function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-cardCloseDayInput.addEventListener('input', checkCardSettingsInput);
-
-saveCardSettingsBtn.addEventListener('click', () => {
-    const day = parseInt(cardCloseDayInput.value, 10);
-    if (!day || day < 1 || day > 31) return;
-    cardSettings = { closeDay: day };
-    localStorage.setItem('cardSettings', JSON.stringify(cardSettings));
-    saveCardSettingsBtn.disabled = true;
-    renderCardSettings();
-    renderInstallments();
-});
-
-// ─── Purchases (installment plans) ───────────────────
-const purchaseNameInput         = document.getElementById('purchase-name');
-const purchaseAmountInput       = document.getElementById('purchase-amount');
-const purchaseInstallmentsInput = document.getElementById('purchase-installments');
-const purchasePaidInput         = document.getElementById('purchase-paid');
-const purchaseDateInput         = document.getElementById('purchase-date');
-const firstInstallmentDateInput = document.getElementById('first-installment-date');
-const addPurchaseBtn            = document.getElementById('add-purchase');
-const installmentsListEl        = document.getElementById('installments-list');
-const cardSummaryEl             = document.getElementById('card-summary');
-
-let purchases = JSON.parse(localStorage.getItem('cardPurchases')) || [];
-let editingPurchaseId  = null;
-let deletingPurchaseId = null;
-
-function checkPurchaseInputs() {
-    const installments = parseInt(purchaseInstallmentsInput.value, 10) || 0;
-    const paid = parseInt(purchasePaidInput.value, 10) || 0;
-    const valid = purchaseNameInput.value.trim() &&
-                  purchaseAmountInput.value &&
-                  parseFloat(purchaseAmountInput.value) > 0 &&
-                  installments > 0 &&
-                  paid >= 0 && paid <= installments &&
-                  purchaseDateInput.value &&
-                  firstInstallmentDateInput.value;
-    addPurchaseBtn.disabled = !valid;
-}
-
-[purchaseNameInput, purchaseAmountInput, purchaseInstallmentsInput, purchasePaidInput, purchaseDateInput, firstInstallmentDateInput]
-    .forEach(el => el.addEventListener('input', checkPurchaseInputs));
-
-// ─── Date helpers ────────────────────────────────────
 function addMonths(dateStr, n) {
     const d = new Date(dateStr + 'T00:00:00');
     d.setMonth(d.getMonth() + n);
@@ -280,189 +742,8 @@ function monthLabel(dateStr) {
     return d.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' });
 }
 
-// ─── Add purchase ────────────────────────────────────
-addPurchaseBtn.addEventListener('click', () => {
-    const name         = purchaseNameInput.value.trim();
-    const amount       = parseFloat(purchaseAmountInput.value);
-    const installments = parseInt(purchaseInstallmentsInput.value, 10);
-    const paidCount    = parseInt(purchasePaidInput.value, 10) || 0;
-    const purchaseDate = purchaseDateInput.value;
-    const firstDate    = firstInstallmentDateInput.value;
+/* ═══════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════ */
 
-    if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !purchaseDate || !firstDate) return;
-
-    purchases.push({
-        id: Date.now(),
-        name,
-        amount,
-        installments,
-        purchaseDate,
-        firstInstallmentDate: firstDate,
-        paidCount: Math.min(paidCount, installments),
-    });
-    localStorage.setItem('cardPurchases', JSON.stringify(purchases));
-
-    purchaseNameInput.value         = '';
-    purchaseAmountInput.value       = '';
-    purchaseInstallmentsInput.value = '';
-    purchasePaidInput.value         = '';
-    purchaseDateInput.value         = '';
-    firstInstallmentDateInput.value = '';
-    addPurchaseBtn.disabled = true;
-
-    renderInstallments();
-});
-
-// ─── Render installments ─────────────────────────────
-function renderInstallments() {
-    installmentsListEl.innerHTML = '';
-
-    if (purchases.length === 0) {
-        installmentsListEl.innerHTML = `
-            <div class="installment-empty">
-                <span class="empty-icon">💳</span>
-                Sin compras en cuotas. ¡Agrega la primera!
-            </div>`;
-        cardSummaryEl.innerHTML = '';
-        return;
-    }
-
-    let totalMonthly = 0;
-    let totalRemaining = 0;
-
-    purchases.forEach(p => {
-        const installmentAmount = p.amount / p.installments;
-        const remaining = p.installments - p.paidCount;
-        totalMonthly += installmentAmount;
-        totalRemaining += installmentAmount * remaining;
-
-        const isComplete = p.paidCount >= p.installments;
-        const progressPct = (p.paidCount / p.installments) * 100;
-
-        // Build installment boxes
-        let boxesHtml = '';
-        for (let i = 0; i < p.installments; i++) {
-            const dueDate = addMonths(p.firstInstallmentDate, i);
-            const isPaid = i < p.paidCount;
-            const isCurrent = i === p.paidCount && !isComplete;
-            boxesHtml += `
-                <div class="box-wrap">
-                    <div class="box ${isPaid ? 'paid' : ''} ${isCurrent ? 'current' : ''}"
-                         onclick="toggleInstallmentPaid(${p.id}, ${i})"
-                         title="Cuota ${i + 1} — ${monthLabel(dueDate)}">
-                        ${i + 1}
-                    </div>
-                    <span class="box-label">${monthLabel(dueDate).slice(0, 3)}</span>
-                </div>`;
-        }
-
-        const item = document.createElement('div');
-        item.className = 'installment-item' + (isComplete ? ' is-complete' : '');
-        item.innerHTML = `
-            <div class="installment-head">
-                <div>
-                    <div class="installment-title">${escapeHtml(p.name)}</div>
-                    <div class="installment-meta">
-                        <span>Total: <strong>$${p.amount.toFixed(2)}</strong></span>
-                        <span>Cuota: <strong>$${installmentAmount.toFixed(2)}</strong></span>
-                        <span>Comprado: <strong>${formatDate(p.purchaseDate)}</strong></span>
-                        <span>1ª cuota: <strong>${formatDate(p.firstInstallmentDate)}</strong></span>
-                    </div>
-                </div>
-                <div class="installment-actions">
-                    <button class="icon-btn edit" title="Editar" onclick="openEditPurchaseModal(${p.id})">✏️</button>
-                    <button class="icon-btn delete" title="Eliminar" onclick="openDeletePurchaseModal(${p.id})">🗑️</button>
-                </div>
-            </div>
-            <div class="installment-progress">
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${progressPct}%"></div>
-                </div>
-                <div class="progress-label">
-                    <span>Cuota ${p.paidCount} de ${p.installments}</span>
-                    <span class="paid">${isComplete ? 'Completo' : `Faltan ${remaining}`}</span>
-                </div>
-            </div>
-            <div class="installment-boxes">${boxesHtml}</div>`;
-        installmentsListEl.appendChild(item);
-    });
-
-    cardSummaryEl.innerHTML = `Cuota mensual: <strong>$${totalMonthly.toFixed(2)}</strong> · Saldo: <strong>$${totalRemaining.toFixed(2)}</strong>`;
-}
-
-// ─── Toggle installment paid ─────────────────────────
-window.toggleInstallmentPaid = function(purchaseId, boxIndex) {
-    const p = purchases.find(x => x.id === purchaseId);
-    if (!p) return;
-
-    if (boxIndex < p.paidCount) {
-        // Only allow unchecking the last paid box (no gaps)
-        if (boxIndex === p.paidCount - 1) {
-            p.paidCount--;
-        }
-    } else if (boxIndex === p.paidCount) {
-        // Check the next box
-        p.paidCount++;
-    } else {
-        return; // can't check beyond the next one (no gaps)
-    }
-
-    localStorage.setItem('cardPurchases', JSON.stringify(purchases));
-    renderInstallments();
-};
-
-// ─── Edit purchase modal ─────────────────────────────
-window.openEditPurchaseModal = function(id) {
-    const p = purchases.find(x => x.id === id);
-    if (!p) return;
-
-    document.getElementById('edit-purchase-name').value         = p.name;
-    document.getElementById('edit-purchase-amount').value       = p.amount;
-    document.getElementById('edit-purchase-installments').value = p.installments;
-    document.getElementById('edit-purchase-paid').value         = p.paidCount;
-    document.getElementById('edit-purchase-date').value         = p.purchaseDate;
-    document.getElementById('edit-first-installment-date').value = p.firstInstallmentDate;
-
-    editingPurchaseId = id;
-    openModal('edit-purchase-modal');
-};
-
-document.getElementById('confirm-edit-purchase').addEventListener('click', () => {
-    const name         = document.getElementById('edit-purchase-name').value.trim();
-    const amount       = parseFloat(document.getElementById('edit-purchase-amount').value);
-    const installments = parseInt(document.getElementById('edit-purchase-installments').value, 10);
-    const paidCount    = parseInt(document.getElementById('edit-purchase-paid').value, 10) || 0;
-    const purchaseDate = document.getElementById('edit-purchase-date').value;
-    const firstDate    = document.getElementById('edit-first-installment-date').value;
-
-    if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !purchaseDate || !firstDate) {
-        alert('Por favor completa todos los campos.');
-        return;
-    }
-
-    const index = purchases.findIndex(x => x.id === editingPurchaseId);
-    if (index > -1) {
-        const clampedPaid = Math.min(paidCount, installments);
-        purchases[index] = { ...purchases[index], name, amount, installments, purchaseDate, firstInstallmentDate: firstDate, paidCount: clampedPaid };
-        localStorage.setItem('cardPurchases', JSON.stringify(purchases));
-        renderInstallments();
-    }
-    closeModal('edit-purchase-modal');
-});
-
-// ─── Delete purchase modal ──────────────────────────
-window.openDeletePurchaseModal = function(id) {
-    deletingPurchaseId = id;
-    openModal('delete-purchase-modal');
-};
-
-document.getElementById('confirm-delete-purchase').addEventListener('click', () => {
-    purchases = purchases.filter(x => x.id !== deletingPurchaseId);
-    localStorage.setItem('cardPurchases', JSON.stringify(purchases));
-    renderInstallments();
-    closeModal('delete-purchase-modal');
-});
-
-// ─── Init card panel ──────────────────────────────────
-renderCardSettings();
-renderInstallments();
+loadAll();

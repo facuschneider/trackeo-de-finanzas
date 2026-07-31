@@ -143,12 +143,213 @@ main {
     margin-bottom: 16px;
 }
 
+/* ─── Incomes section ─────────────────────────────────── */
+.incomes-card {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--accent-lt) 200%);
+}
+
+.incomes-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.income-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.income-item label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+}
+
+.income-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.currency-prefix {
+    position: absolute;
+    left: 12px;
+    font-size: 14px;
+    color: var(--muted);
+    pointer-events: none;
+}
+
+.income-input-wrap input {
+    width: 100%;
+    padding: 10px 12px 10px 28px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--surface);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+    font-variant-numeric: tabular-nums;
+}
+
+.income-input-wrap input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.income-input-wrap input::placeholder { color: var(--muted); }
+
+.incomes-summary {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.incomes-summary strong {
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* ─── Cards list ──────────────────────────────────────── */
+.cards-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.card-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    background: var(--bg);
+    font-size: 13px;
+    transition: border-color 0.15s;
+}
+
+.card-chip:hover { border-color: var(--accent); }
+
+.card-chip .card-chip-name {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.card-chip .card-chip-close {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.card-chip .card-chip-remove {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.15s;
+}
+
+.card-chip .card-chip-remove:hover { color: var(--danger); }
+
+.card-add-form {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.card-add-form input {
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-family: var(--font);
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.card-add-form input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+    background: var(--surface);
+}
+
+.card-add-form input:first-child { flex: 1; min-width: 140px; }
+.card-add-form input:nth-child(2) { width: 100px; }
+
+#add-card {
+    padding: 9px 18px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+
+#add-card:hover:not(:disabled) { background: #15803D; }
+#add-card:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ─── Source pill ─────────────────────────────────────── */
+.source-pill {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #E0F2FE;
+    color: #0369A1;
+}
+
+/* ─── Card group header in installments ───────────────── */
+.card-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 18px 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.card-group-header .card-group-summary {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--muted);
+}
+
 /* ─── Form ──────────────────────────────────────────── */
 .form-grid {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr 1fr auto;
     gap: 10px;
     align-items: center;
+}
+
+.form-grid-expense {
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr auto;
 }
 
 .form-grid input,
@@ -715,10 +916,12 @@ tbody td {
     .card { padding: 18px; }
     .header-inner { padding: 14px 16px; }
 
-    .form-grid {
+    .incomes-grid { grid-template-columns: 1fr; }
+
+    .form-grid, .form-grid-expense {
         grid-template-columns: 1fr 1fr;
     }
-    .form-grid input:first-child { grid-column: 1 / -1; }
+    .form-grid input:first-child, .form-grid-expense input:first-child { grid-column: 1 / -1; }
     #add-expense { grid-column: 1 / -1; width: 100%; }
 
     .form-grid-card {
@@ -729,16 +932,16 @@ tbody td {
 
     .table-header { flex-direction: column; align-items: flex-start; gap: 12px; }
 
-    thead th:nth-child(4) { display: none; }
-    tbody td:nth-child(4) { display: none; }
+    thead th:nth-child(5) { display: none; }
+    tbody td:nth-child(5) { display: none; }
 }
 
 @media (max-width: 420px) {
     .header-total { display: none; }
     h1 { font-size: 15px; }
 
-    .form-grid { grid-template-columns: 1fr; }
-    .form-grid input:first-child { grid-column: 1; }
+    .form-grid, .form-grid-expense { grid-template-columns: 1fr; }
+    .form-grid input:first-child, .form-grid-expense input:first-child { grid-column: 1; }
     #add-expense { grid-column: 1; }
 
     .form-grid-card { grid-template-columns: 1fr; }
