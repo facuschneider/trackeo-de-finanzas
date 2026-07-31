@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gastos Familiares</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <header>
+        <div class="header-inner">
+            <div class="header-left">
+                <span class="logo-mark">◈</span>
+                <h1>Gastos Familiares</h1>
+            </div>
+            <div class="header-total">
+                Total: <strong>$<span id="total-expense">0.00</span></strong>
+            </div>
+        </div>
+    </header>
+
+    <main>
+
+        <!-- Tabs -->
+        <nav class="tabs">
+            <button class="tab active" data-tab="expenses">💸 Gastos</button>
+            <button class="tab" data-tab="card">💳 Tarjeta</button>
+        </nav>
+
+        <!-- ═══ EXPENSES PANEL ═══ -->
+        <div id="panel-expenses" class="tab-panel active">
+
+            <!-- Add expense form -->
+            <section class="card form-card">
+                <h2 class="section-label">Nuevo gasto</h2>
+                <div class="form-grid">
+                    <input type="text" id="expense-name" placeholder="Descripción del gasto" autocomplete="off">
+                    <input type="number" id="expense-amount" placeholder="Monto ($)" min="0" step="0.01">
+                    <select id="expense-category">
+                        <option value="" disabled selected>Categoría</option>
+                        <option value="Alimentación">Alimentación</option>
+                        <option value="Transporte">Transporte</option>
+                        <option value="Compras">Compras</option>
+                        <option value="Otro">Otro</option>
+                    </select>
+                    <input type="date" id="expense-date">
+                    <button id="add-expense" disabled>Agregar</button>
+                </div>
+            </section>
+
+            <!-- Table section -->
+            <section class="card table-card">
+                <div class="table-header">
+                    <h2 class="section-label">Registro de gastos</h2>
+                    <div class="filter-wrap">
+                        <label for="category-filter">Filtrar</label>
+                        <select id="category-filter">
+                            <option value="All">Todos</option>
+                            <option value="Alimentación">Alimentación</option>
+                            <option value="Transporte">Transporte</option>
+                            <option value="Compras">Compras</option>
+                            <option value="Otro">Otro</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Descripción</th>
+                                <th>Monto</th>
+                                <th>Categoría</th>
+                                <th>Fecha</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="expense-table"></tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div><!-- /panel-expenses -->
+
+        <!-- ═══ CREDIT CARD PANEL ═══ -->
+        <div id="panel-card" class="tab-panel">
+
+            <!-- Card settings -->
+            <section class="card form-card">
+                <h2 class="section-label">Cierre de tarjeta</h2>
+                <div class="card-settings-grid">
+                    <label for="card-close-day">Día de cierre de resumen</label>
+                    <input type="number" id="card-close-day" min="1" max="31" placeholder="Ej: 15">
+                    <button id="save-card-settings" disabled>Guardar</button>
+                </div>
+                <p class="card-settings-hint" id="card-settings-hint"></p>
+            </section>
+
+            <!-- Add installment purchase -->
+            <section class="card form-card">
+                <h2 class="section-label">Nueva compra en cuotas</h2>
+                <div class="form-grid form-grid-card">
+                    <input type="text" id="purchase-name" placeholder="Producto (Ej: Aire acondicionado)" autocomplete="off">
+                    <input type="number" id="purchase-amount" placeholder="Monto total ($)" min="0" step="0.01">
+                    <input type="number" id="purchase-installments" placeholder="Cuotas" min="1" max="60">
+                    <input type="number" id="purchase-paid" placeholder="Ya pagas" min="0" max="60" title="Cuotas ya pagas">
+                    <input type="date" id="purchase-date" title="Mes de compra">
+                    <input type="date" id="first-installment-date" title="Fecha primera cuota">
+                    <button id="add-purchase" disabled>Agregar</button>
+                </div>
+                <p class="form-hint">Comprado en <strong>mes de compra</strong> · Primera cuota vence el <strong>fecha primera cuota</strong></p>
+            </section>
+
+            <!-- Installments list -->
+            <section class="card table-card">
+                <div class="table-header">
+                    <h2 class="section-label">Compras en cuotas</h2>
+                    <div class="card-summary" id="card-summary"></div>
+                </div>
+
+                <div id="installments-list"></div>
+            </section>
+
+        </div><!-- /panel-card -->
+
+    </main>
+
+    <!-- Edit modal -->
+    <div id="edit-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+        <div class="modal-content">
+            <h2 id="edit-title">Editar gasto</h2>
+            <input type="text" id="edit-expense-name" placeholder="Descripción del gasto">
+            <input type="number" id="edit-expense-amount" placeholder="Monto ($)" min="0" step="0.01">
+            <select id="edit-expense-category">
+                <option value="" disabled selected>Categoría</option>
+                <option value="Alimentación">Alimentación</option>
+                <option value="Transporte">Transporte</option>
+                <option value="Compras">Compras</option>
+                <option value="Otro">Otro</option>
+            </select>
+            <input type="date" id="edit-expense-date">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('edit-modal')">Cancelar</button>
+                <button class="btn-primary" id="confirm-edit">Guardar cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete modal -->
+    <div id="delete-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+        <div class="modal-content modal-content--compact">
+            <div class="delete-icon">⚠</div>
+            <h2 id="delete-title">¿Eliminar gasto?</h2>
+            <p>Esta acción no se puede deshacer.</p>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('delete-modal')">Cancelar</button>
+                <button class="btn-danger" id="confirm-delete">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit purchase modal -->
+    <div id="edit-purchase-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-purchase-title">
+        <div class="modal-content">
+            <h2 id="edit-purchase-title">Editar compra</h2>
+            <input type="text" id="edit-purchase-name" placeholder="Producto">
+            <input type="number" id="edit-purchase-amount" placeholder="Monto total ($)" min="0" step="0.01">
+            <input type="number" id="edit-purchase-installments" placeholder="Cuotas" min="1" max="60">
+            <input type="number" id="edit-purchase-paid" placeholder="Ya pagas" min="0" max="60" title="Cuotas ya pagas">
+            <input type="date" id="edit-purchase-date" title="Mes de compra">
+            <input type="date" id="edit-first-installment-date" title="Fecha primera cuota">
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('edit-purchase-modal')">Cancelar</button>
+                <button class="btn-primary" id="confirm-edit-purchase">Guardar cambios</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete purchase modal -->
+    <div id="delete-purchase-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-purchase-title">
+        <div class="modal-content modal-content--compact">
+            <div class="delete-icon">⚠</div>
+            <h2 id="delete-purchase-title">¿Eliminar compra?</h2>
+            <p>Esta acción no se puede deshacer.</p>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="closeModal('delete-purchase-modal')">Cancelar</button>
+                <button class="btn-danger" id="confirm-delete-purchase">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
