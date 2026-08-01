@@ -41,10 +41,10 @@ const incomePapaInput = document.getElementById('income-papa');
 const incomeMamaInput = document.getElementById('income-mama');
 
 /* ─── DOM: Cards ───────────────────────────────────── */
-const cardsListEl       = document.getElementById('cards-list');
-const newCardNameInput  = document.getElementById('new-card-name');
-const newCardCloseInput = document.getElementById('new-card-close-day');
-const addCardBtn        = document.getElementById('add-card');
+const cardsListEl      = document.getElementById('cards-list');
+const newCardNameInput = document.getElementById('new-card-name');
+const addCardBtn       = document.getElementById('add-card');
+const CARD_CLOSE_DAY   = 15;
 
 /* ─── DOM: Purchases ───────────────────────────────── */
 const purchaseNameInput         = document.getElementById('purchase-name');
@@ -90,6 +90,7 @@ async function loadAll() {
     renderCardSelectors();
     updateUI();
     renderInstallments();
+    initReports();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -198,6 +199,7 @@ addExpenseButton.addEventListener('click', async () => {
 
     updateUI();
     updateBalanceSummary();
+    renderReport();
 });
 
 function updateUI() {
@@ -285,6 +287,7 @@ document.getElementById('confirm-edit').addEventListener('click', async () => {
     closeModal('edit-modal');
     updateUI();
     updateBalanceSummary();
+    renderReport();
 });
 
 /* ─── Delete expense ───────────────────────────────── */
@@ -304,6 +307,7 @@ document.getElementById('confirm-delete').addEventListener('click', async () => 
     closeModal('delete-modal');
     updateUI();
     updateBalanceSummary();
+    renderReport();
 });
 
 categoryFilter.addEventListener('change', updateUI);
@@ -319,7 +323,7 @@ function renderCards() {
         chip.className = 'card-chip';
         chip.innerHTML = `
             <span class="card-chip-name">${escapeHtml(card.name)}</span>
-            <span class="card-chip-close">cierre día ${card.close_day}</span>
+            <span class="card-chip-close">cierre día ${CARD_CLOSE_DAY}</span>
             <button class="card-chip-remove" title="Eliminar tarjeta" onclick="openDeleteCardModal(${card.id})">×</button>`;
         cardsListEl.appendChild(chip);
     });
@@ -335,25 +339,22 @@ function renderCardSelectors() {
 
 /* ─── Add card ─────────────────────────────────────── */
 function checkCardInputs() {
-    addCardBtn.disabled = !newCardNameInput.value.trim() || !newCardCloseInput.value;
+    addCardBtn.disabled = !newCardNameInput.value.trim();
 }
 newCardNameInput.addEventListener('input', checkCardInputs);
-newCardCloseInput.addEventListener('input', checkCardInputs);
 
 addCardBtn.addEventListener('click', async () => {
-    const name     = newCardNameInput.value.trim();
-    const closeDay = parseInt(newCardCloseInput.value, 10);
-    if (!name || !closeDay || closeDay < 1 || closeDay > 31) return;
+    const name = newCardNameInput.value.trim();
+    if (!name) return;
 
     const { data, error } = await supabase
         .from('cards')
-        .insert({ name, close_day: closeDay })
+        .insert({ name, close_day: CARD_CLOSE_DAY })
         .select();
     if (error) { console.error(error); return; }
 
     cards.push(data[0]);
-    newCardNameInput.value  = '';
-    newCardCloseInput.value = '';
+    newCardNameInput.value = '';
     addCardBtn.disabled = true;
 
     renderCards();
@@ -478,7 +479,7 @@ function renderInstallments() {
 
         const header = document.createElement('div');
         header.className = 'card-group-header';
-        header.innerHTML = `💳 ${escapeHtml(card.name)} <span class="card-group-summary">cierre día ${card.close_day}</span>`;
+        header.innerHTML = `💳 ${escapeHtml(card.name)} <span class="card-group-summary">cierre día ${CARD_CLOSE_DAY}</span>`;
         installmentsListEl.appendChild(header);
 
         cardPurchases.forEach(p => {
@@ -688,6 +689,156 @@ document.getElementById('confirm-delete-purchase').addEventListener('click', asy
     closeModal('delete-purchase-modal');
     renderInstallments();
 });
+
+/* ═══════════════════════════════════════════════════════════
+   MONTHLY REPORTS
+   ═══════════════════════════════════════════════════════════ */
+
+const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const CHART_COLORS = ['#16A34A','#0EA5E9','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16'];
+
+let reportChart = null;
+let reportMonth = new Date().getMonth();
+let reportYear  = new Date().getFullYear();
+
+const reportMonthSelect = document.getElementById('report-month');
+const reportYearSelect  = document.getElementById('report-year');
+const reportPrevBtn      = document.getElementById('report-prev');
+const reportNextBtn      = document.getElementById('report-next');
+const reportTableEl      = document.getElementById('report-table');
+const reportTotalEl      = document.getElementById('report-total');
+const reportCountEl      = document.getElementById('report-count');
+const reportAvgEl        = document.getElementById('report-avg');
+const reportsLegendEl    = document.getElementById('reports-legend');
+
+function initReports() {
+    reportMonthSelect.innerHTML = MONTH_NAMES.map((m, i) => `<option value="${i}">${m}</option>`).join('');
+    const now = new Date();
+    const minYear = expenses.length ? Math.min(...expenses.map(e => parseInt(e.date.slice(0,4),10))) : now.getFullYear();
+    const maxYear = Math.max(now.getFullYear(), minYear);
+    let yearsHtml = '';
+    for (let y = maxYear; y >= minYear; y--) yearsHtml += `<option value="${y}">${y}</option>`;
+    reportYearSelect.innerHTML = yearsHtml;
+
+    reportMonthSelect.value = reportMonth;
+    reportYearSelect.value  = reportYear;
+
+    reportMonthSelect.addEventListener('change', () => { reportMonth = parseInt(reportMonthSelect.value,10); renderReport(); });
+    reportYearSelect.addEventListener('change',  () => { reportYear  = parseInt(reportYearSelect.value,10);  renderReport(); });
+    reportPrevBtn.addEventListener('click', () => {
+        reportMonth--;
+        if (reportMonth < 0) { reportMonth = 11; reportYear--; }
+        syncReportSelectors(); renderReport();
+    });
+    reportNextBtn.addEventListener('click', () => {
+        reportMonth++;
+        if (reportMonth > 11) { reportMonth = 0; reportYear++; }
+        syncReportSelectors(); renderReport();
+    });
+
+    renderReport();
+}
+
+function syncReportSelectors() {
+    reportMonthSelect.value = reportMonth;
+    const minYear = expenses.length ? Math.min(...expenses.map(e => parseInt(e.date.slice(0,4),10))) : reportYear;
+    if (reportYear < minYear) {
+        let yearsHtml = '';
+        for (let y = reportYear; y >= reportYear; y--) yearsHtml += `<option value="${y}">${y}</option>`;
+        reportYearSelect.innerHTML = yearsHtml;
+    }
+    reportYearSelect.value = reportYear;
+}
+
+function renderReport() {
+    const monthStr = String(reportMonth + 1).padStart(2, '0');
+    const yearStr  = String(reportYear);
+    const filtered = expenses.filter(e => {
+        if (!e.date) return false;
+        const [y, m] = e.date.split('-');
+        return y === yearStr && m === monthStr;
+    });
+
+    const total = filtered.reduce((s, e) => s + e.amount, 0);
+    const count = filtered.length;
+    const avg = count ? total / count : 0;
+    reportTotalEl.textContent = `${total.toFixed(2)}`;
+    reportCountEl.textContent = String(count);
+    reportAvgEl.textContent   = `${avg.toFixed(2)}`;
+
+    const byCategory = {};
+    filtered.forEach(e => {
+        const cat = e.category || 'Otro';
+        byCategory[cat] = (byCategory[cat] || 0) + e.amount;
+    });
+
+    const cats = Object.keys(byCategory).sort((a,b) => byCategory[b] - byCategory[a]);
+    const values = cats.map(c => byCategory[c]);
+    const colors = cats.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+
+    if (reportChart) reportChart.destroy();
+
+    const ctx = document.getElementById('reports-chart');
+    if (count === 0) {
+        ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+        reportsLegendEl.innerHTML = '<div class="legend-item" style="justify-content:center;color:var(--muted);">Sin gastos en este mes.</div>';
+    } else {
+        reportChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: cats.map(c => CATEGORY_LABELS[c] || c),
+                datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const v = ctx.parsed;
+                                const pct = total ? ((v / total) * 100).toFixed(1) : 0;
+                                return ` ${ctx.label}: ${v.toFixed(2)} (${pct}%)`;
+                            },
+                        },
+                    },
+                },
+                cutout: '62%',
+            },
+        });
+
+        reportsLegendEl.innerHTML = cats.map((c, i) => {
+            const pct = total ? ((byCategory[c] / total) * 100).toFixed(1) : 0;
+            return `<div class="legend-item">
+                <span class="legend-dot" style="background:${colors[i]};"></span>
+                <span class="legend-label">${CATEGORY_LABELS[c] || c}</span>
+                <span class="legend-value">${byCategory[c].toFixed(2)}<span class="legend-pct">${pct}%</span></span>
+            </div>`;
+        }).join('');
+    }
+
+    reportTableEl.innerHTML = '';
+    if (filtered.length === 0) {
+        const row = document.createElement('tr');
+        row.className = 'empty-row';
+        row.innerHTML = `<td colspan="5"><span class="empty-icon">📭</span> Sin gastos en ${MONTH_NAMES[reportMonth]} ${reportYear}.</td>`;
+        reportTableEl.appendChild(row);
+    } else {
+        filtered.forEach(e => {
+            const row = document.createElement('tr');
+            const label = CATEGORY_LABELS[e.category] || e.category;
+            const sourceHtml = e.source ? `<span class="source-pill">${escapeHtml(e.source)}</span>` : '—';
+            row.innerHTML = `
+                <td>${escapeHtml(e.name)}</td>
+                <td class="amount-cell">${e.amount.toFixed(2)}</td>
+                <td><span class="category-pill">${label}</span></td>
+                <td>${sourceHtml}</td>
+                <td>${formatDate(e.date)}</td>`;
+            reportTableEl.appendChild(row);
+        });
+    }
+}
 
 /* ═══════════════════════════════════════════════════════════
    TABS & MODALS

@@ -58,6 +58,7 @@
         <nav class="tabs">
             <button class="tab active" data-tab="expenses">💸 Gastos</button>
             <button class="tab" data-tab="card">💳 Tarjeta</button>
+            <button class="tab" data-tab="reports">📊 Reportes</button>
         </nav>
 
         <!-- ═══ EXPENSES PANEL ═══ -->
@@ -134,9 +135,9 @@
                 <div id="cards-list" class="cards-list"></div>
                 <div class="card-add-form">
                     <input type="text" id="new-card-name" placeholder="Nombre (Ej: Galicia)" autocomplete="off">
-                    <input type="number" id="new-card-close-day" placeholder="Día cierre" min="1" max="31">
                     <button id="add-card" disabled>Agregar tarjeta</button>
                 </div>
+                <p class="form-hint">El cierre de todas las tarjetas es el día 15 de cada mes de forma automática.</p>
             </section>
 
             <!-- Add installment purchase -->
@@ -166,6 +167,62 @@
             </section>
 
         </div><!-- /panel-card -->
+
+        <!-- ═══ REPORTS PANEL ═══ -->
+        <div id="panel-reports" class="tab-panel">
+
+            <section class="card reports-card">
+                <div class="reports-header">
+                    <h2 class="section-label">Reporte mensual</h2>
+                    <div class="reports-date-nav">
+                        <button id="report-prev" title="Mes anterior">‹</button>
+                        <select id="report-month"></select>
+                        <select id="report-year"></select>
+                        <button id="report-next" title="Mes siguiente">›</button>
+                    </div>
+                </div>
+
+                <div class="reports-summary">
+                    <div class="report-stat">
+                        <span class="report-stat-label">Total gastado</span>
+                        <span class="report-stat-value" id="report-total">$0.00</span>
+                    </div>
+                    <div class="report-stat">
+                        <span class="report-stat-label">Gastos</span>
+                        <span class="report-stat-value" id="report-count">0</span>
+                    </div>
+                    <div class="report-stat">
+                        <span class="report-stat-label">Promedio</span>
+                        <span class="report-stat-value" id="report-avg">$0.00</span>
+                    </div>
+                </div>
+
+                <div class="reports-chart-wrap">
+                    <canvas id="reports-chart"></canvas>
+                </div>
+
+                <div class="reports-legend" id="reports-legend"></div>
+            </section>
+
+            <section class="card table-card">
+                <h2 class="section-label">Detalle del mes</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Descripción</th>
+                                <th>Monto</th>
+                                <th>Categoría</th>
+                                <th>Origen</th>
+                                <th>Fecha</th>
+                            </tr>
+                        </thead>
+                        <tbody id="report-table"></tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div><!-- /panel-reports -->
 
     </main>
 
@@ -255,6 +312,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="script.js"></script>
 </body>
 
