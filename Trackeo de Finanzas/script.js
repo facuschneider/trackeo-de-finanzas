@@ -142,6 +142,14 @@ function updateBalanceSummary() {
     const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
     const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
     const balance  = totalInc - totalExp;
+
+    const papaIncome = (incomes.find(i => i.label === 'Sueldo Papá')?.amount) || 0;
+    const mamaIncome = (incomes.find(i => i.label === 'Sueldo Mamá')?.amount) || 0;
+    const papaExpenses = expenses.filter(e => e.source === 'Sueldo Papá').reduce((s, e) => s + (e.amount || 0), 0);
+    const mamaExpenses = expenses.filter(e => e.source === 'Sueldo Mamá').reduce((s, e) => s + (e.amount || 0), 0);
+
+    document.getElementById('balance-papa').textContent = (papaIncome - papaExpenses).toFixed(2);
+    document.getElementById('balance-mama').textContent = (mamaIncome - mamaExpenses).toFixed(2);
     totalIncomesEl.textContent      = totalInc.toFixed(2);
     totalExpensesPaidEl.textContent = totalExp.toFixed(2);
     totalBalanceEl.textContent      = balance.toFixed(2);
