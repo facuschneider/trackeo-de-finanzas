@@ -1,3 +1,78 @@
+.verified-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    background-color: #ffffff;
+    border-left: 5px solid #22c55e; /* Verde de Supabase/Bolt */
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 16px;
+    width: 90%;
+    max-width: 400px;
+    font-family: system-ui, -apple-system, sans-serif;
+    
+    /* Animación de entrada suave */
+    animation: slideDown 0.4s ease-out;
+}
+
+/* Contenido interno (icono, textos y botón) */
+.verified-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    position: relative;
+}
+
+.verified-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.verified-content h3 {
+    margin: 0 0 4px 0;
+    color: #1f2937;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.verified-content p {
+    margin: 0;
+    color: #4b5563;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+/* Botón para cerrar (la X) */
+.verified-content button {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px;
+    transition: color 0.2s;
+}
+
+.verified-content button:hover {
+    color: #374151;
+}
+
+/* Animación para que baje desde el techo de la pantalla */
+@keyframes slideDown {
+    from {
+        top: -100px;
+        opacity: 0;
+    }
+    to {
+        top: 20px;
+        opacity: 1;
+    }
+}
 /* ─── Reset & Base ─────────────────────────────────── */
 *, *::before, *::after {
     margin: 0;
