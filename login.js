@@ -1,7 +1,23 @@
 /* ═══════════════════════════════════════════════════════════
    Gastos Familiares — Login
    ═══════════════════════════════════════════════════════════ */
-
+window.addEventListener('DOMContentLoaded', () => {
+    // Revisamos los parámetros de la URL
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // Si la URL contiene "?verified=true", mostramos el cartel
+    if (urlParams.get('verified') === 'true') {
+        const modal = document.getElementById('verified-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+            
+            // Opcional: Que se cierre solo después de 5 segundos
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 5000);
+        }
+    }
+});
 const supabaseUrl = window.ENV.SUPABASE_URL;
 const supabaseAnonKey = window.ENV.SUPABASE_ANON_KEY;
 const supabaseDb = supabase.createClient(supabaseUrl, supabaseAnonKey);
