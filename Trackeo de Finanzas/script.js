@@ -1,10 +1,11 @@
 /* ═══════════════════════════════════════════════════════════
-   Gastos Familiares — Supabase backend
+   Gastos Familiares — Supabase backend con autenticación
    ═══════════════════════════════════════════════════════════ */
 
-const SUPABASE_URL = 'https://uboabckurhvfopibbbeo.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVib2FiY2t1cmh2Zm9waWJiYmVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTcyNjgsImV4cCI6MjEwMDc3MzI2OH0.SoC89tyqBmGqDspVfy5SE7655fDUAt7edaoM7TKWoj8';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseUrl = window.ENV.SUPABASE_URL;
+const supabaseAnonKey = window.ENV.SUPABASE_ANON_KEY;
+const supabaseDb = supabase.createClient(supabaseUrl, supabaseAnonKey);
+window.supabase = supabaseDb;
 
 const CATEGORY_LABELS = {
     'Alimentación': '🍽 Alimentación',
@@ -14,6 +15,8 @@ const CATEGORY_LABELS = {
     'Ferretería':   '🔧 Ferretería',
     'Otro':         '📦 Otro',
 };
+
+const CARD_CLOSE_DAY = 15;
 
 /* ─── State ────────────────────────────────────────── */
 let expenses  = [];
@@ -44,7 +47,6 @@ const incomeMamaInput = document.getElementById('income-mama');
 const cardsListEl      = document.getElementById('cards-list');
 const newCardNameInput = document.getElementById('new-card-name');
 const addCardBtn       = document.getElementById('add-card');
-const CARD_CLOSE_DAY   = 15;
 
 /* ─── DOM: Purchases ───────────────────────────────── */
 const purchaseNameInput         = document.getElementById('purchase-name');
@@ -63,16 +65,44 @@ const totalBalanceEl    = document.getElementById('total-balance');
 const totalIncomesEl    = document.getElementById('total-incomes');
 const totalExpensesPaidEl = document.getElementById('total-expenses-paid');
 
+/* ─── DOM: Logout ──────────────────────────────────── */
+const btnLogout = document.getElementById('btn-logout');
+
+/* ═══════════════════════════════════════════════════════════
+   AUTH GUARD
+   ═══════════════════════════════════════════════════════════ */
+
+async function init() {
+    const { data: { session } } = await supabaseDb.auth.getSession();
+    if (!session) {
+        window.location.href = 'login.html';
+        return;
+    }
+
+    supabaseDb.auth.onAuthStateChange((event, _session) => {
+        if (event === 'SIGNED_OUT') {
+            window.location.href = 'login.html';
+        }
+    });
+
+    await loadAll();
+}
+
+btnLogout.addEventListener('click', async () => {
+    await supabaseDb.auth.signOut();
+    window.location.href = 'login.html';
+});
+
 /* ═══════════════════════════════════════════════════════════
    DATA LOADING
    ═══════════════════════════════════════════════════════════ */
 
 async function loadAll() {
     const [expRes, incRes, cardRes, purRes] = await Promise.all([
-        supabase.from('expenses').select('*').order('date', { ascending: false }),
-        supabase.from('incomes').select('*').order('id'),
-        supabase.from('cards').select('*').order('id'),
-        supabase.from('card_purchases').select('*').order('created_at', { ascending: false }),
+        supabaseDb.from('expenses').select('*').order('date', { ascending: false }),
+        supabaseDb.from('incomes').select('*').order('id'),
+        supabaseDb.from('cards').select('*').order('id'),
+        supabaseDb.from('card_purchases').select('*').order('created_at', { ascending: false }),
     ]);
 
     if (expRes.error)  { console.error('expenses:', expRes.error);  return; }
@@ -85,12 +115,30 @@ async function loadAll() {
     cards    = cardRes.data || [];
     purchases = purRes.data || [];
 
+    await ensureDefaultIncomes();
+
     renderIncomes();
     renderCards();
     renderCardSelectors();
     updateUI();
     renderInstallments();
     initReports();
+}
+
+/* Ensure the two default income rows exist for this user */
+async function ensureDefaultIncomes() {
+    const labels = ['Sueldo Papá', 'Sueldo Mamá'];
+    for (const label of labels) {
+        if (!incomes.find(i => i.label === label)) {
+            const { data, error } = await supabaseDb
+                .from('incomes')
+                .insert({ label, amount: 0 })
+                .select();
+            if (!error && data && data[0]) {
+                incomes.push(data[0]);
+            }
+        }
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -108,14 +156,14 @@ function renderIncomes() {
 async function saveIncome(label, amount) {
     const existing = incomes.find(i => i.label === label);
     if (existing) {
-        const { error } = await supabase
+        const { error } = await supabaseDb
             .from('incomes')
             .update({ amount, updated_at: new Date().toISOString() })
             .eq('id', existing.id);
         if (error) { console.error(error); return; }
         existing.amount = amount;
     } else {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseDb
             .from('incomes')
             .insert({ label, amount })
             .select();
@@ -182,7 +230,7 @@ addExpenseButton.addEventListener('click', async () => {
     const date     = expenseDate.value;
     if (!name || isNaN(amount) || amount <= 0 || !category || !source || !date) return;
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseDb
         .from('expenses')
         .insert({ name, amount, category, source, date })
         .select();
@@ -243,7 +291,6 @@ function updateUI() {
         });
     }
 
-    const total = filtered.reduce((sum, e) => sum + e.amount, 0);
     updateBalanceSummary();
 }
 
@@ -274,7 +321,7 @@ document.getElementById('confirm-edit').addEventListener('click', async () => {
         return;
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseDb
         .from('expenses')
         .update({ name, amount, category, source, date })
         .eq('id', editingExpenseId);
@@ -297,7 +344,7 @@ window.openDeleteModal = function(id) {
 };
 
 document.getElementById('confirm-delete').addEventListener('click', async () => {
-    const { error } = await supabase
+    const { error } = await supabaseDb
         .from('expenses')
         .delete()
         .eq('id', deletingExpenseId);
@@ -347,7 +394,7 @@ addCardBtn.addEventListener('click', async () => {
     const name = newCardNameInput.value.trim();
     if (!name) return;
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseDb
         .from('cards')
         .insert({ name, close_day: CARD_CLOSE_DAY })
         .select();
@@ -368,14 +415,13 @@ window.openDeleteCardModal = function(id) {
 };
 
 document.getElementById('confirm-delete-card').addEventListener('click', async () => {
-    const { error } = await supabase
+    const { error } = await supabaseDb
         .from('cards')
         .delete()
         .eq('id', deletingCardId);
     if (error) { console.error(error); return; }
 
     cards = cards.filter(c => c.id !== deletingCardId);
-    // Purchases with this card_id will have card_id = NULL (ON DELETE SET NULL)
     purchases.forEach(p => { if (p.card_id === deletingCardId) p.card_id = null; });
 
     closeModal('delete-card-modal');
@@ -416,7 +462,7 @@ addPurchaseBtn.addEventListener('click', async () => {
 
     if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !cardId || !purchaseDate || !firstDate) return;
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseDb
         .from('card_purchases')
         .insert({
             name,
@@ -461,7 +507,6 @@ function renderInstallments() {
     let grandMonthly = 0;
     let grandRemaining = 0;
 
-    // Group purchases by card; unassigned purchases go under "Sin tarjeta"
     const grouped = {};
     purchases.forEach(p => {
         const key = p.card_id || 'none';
@@ -469,7 +514,6 @@ function renderInstallments() {
         grouped[key].push(p);
     });
 
-    // Render each card group
     cards.forEach(card => {
         const cardPurchases = grouped[card.id] || [];
         if (cardPurchases.length === 0) return;
@@ -501,7 +545,6 @@ function renderInstallments() {
         grandRemaining += cardRemaining;
     });
 
-    // Unassigned purchases
     if (grouped['none'] && grouped['none'].length > 0) {
         const header = document.createElement('div');
         header.className = 'card-group-header';
@@ -606,7 +649,7 @@ window.toggleInstallmentPaid = async function(purchaseId, boxIndex) {
         return;
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseDb
         .from('card_purchases')
         .update({ paidCount: newPaidCount })
         .eq('id', purchaseId);
@@ -652,7 +695,7 @@ document.getElementById('confirm-edit-purchase').addEventListener('click', async
 
     const clampedPaid = Math.min(paidCount, installments);
 
-    const { error } = await supabase
+    const { error } = await supabaseDb
         .from('card_purchases')
         .update({
             name, amount, installments,
@@ -679,7 +722,7 @@ window.openDeletePurchaseModal = function(id) {
 };
 
 document.getElementById('confirm-delete-purchase').addEventListener('click', async () => {
-    const { error } = await supabase
+    const { error } = await supabaseDb
         .from('card_purchases')
         .delete()
         .eq('id', deletingPurchaseId);
@@ -905,4 +948,4 @@ function monthLabel(dateStr) {
    INIT
    ═══════════════════════════════════════════════════════════ */
 
-loadAll();
+init();
