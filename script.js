@@ -98,11 +98,18 @@ btnLogout.addEventListener('click', async () => {
    ═══════════════════════════════════════════════════════════ */
 
 async function loadAll() {
+    // 1. Obtenemos la sesión actual para saber qué usuario está navegando
+    const { data: { session } } = await supabaseDb.auth.getSession();
+    if (!session) return; // Si no hay sesión, no hacemos nada
+    
+    const userId = session.user.id;
+
+    // 2. Traemos los datos de Supabase filtrando SOLAMENTE los que coincidan con su user_id
     const [expRes, incRes, cardRes, purRes] = await Promise.all([
-        supabaseDb.from('expenses').select('*').order('date', { ascending: false }),
-        supabaseDb.from('incomes').select('*').order('id'),
-        supabaseDb.from('cards').select('*').order('id'),
-        supabaseDb.from('card_purchases').select('*').order('created_at', { ascending: false }),
+        supabaseDb.from('expenses').select('*').eq('user_id', userId).order('date', { ascending: false }),
+        supabaseDb.from('incomes').select('*').eq('user_id', userId).order('id'),
+        supabaseDb.from('cards').select('*').eq('user_id', userId).order('id'),
+        supabaseDb.from('card_purchases').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
     ]);
 
     if (expRes.error)  { console.error('expenses:', expRes.error);  return; }
