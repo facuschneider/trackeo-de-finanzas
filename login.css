@@ -1,0 +1,337 @@
+.verified-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    background-color: #ffffff;
+    border-left: 5px solid #22c55e; /* Verde de Supabase/Bolt */
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 16px;
+    width: 90%;
+    max-width: 400px;
+    font-family: system-ui, -apple-system, sans-serif;
+    
+    /* Animación de entrada suave */
+    animation: slideDown 0.4s ease-out;
+}
+
+/* Contenido interno (icono, textos y botón) */
+.verified-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    position: relative;
+}
+
+.verified-icon {
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.verified-content h3 {
+    margin: 0 0 4px 0;
+    color: #1f2937;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.verified-content p {
+    margin: 0;
+    color: #4b5563;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+/* Botón para cerrar (la X) */
+.verified-content button {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px;
+    transition: color 0.2s;
+}
+
+.verified-content button:hover {
+    color: #374151;
+}
+
+/* Animación para que baje desde el techo de la pantalla */
+@keyframes slideDown {
+    from {
+        top: -100px;
+        opacity: 0;
+    }
+    to {
+        top: 20px;
+        opacity: 1;
+    }
+}
+/* ─── Reset & Base ─────────────────────────────────── */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg:        #F8FAFC;
+    --surface:   #FFFFFF;
+    --border:    #E2E8F0;
+    --text:      #0F172A;
+    --muted:     #64748B;
+    --accent:    #16A34A;
+    --accent-dk: #15803D;
+    --accent-lt: #DCFCE7;
+    --danger:    #DC2626;
+    --danger-lt: #FEE2E2;
+    --shadow:    0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --radius:    10px;
+    --font:      'Inter', system-ui, sans-serif;
+}
+
+html { font-size: 15px; }
+
+body {
+    font-family: var(--font);
+    background-color: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 0; }
+
+/* ─── Page ─────────────────────────────────────────── */
+.page {
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+}
+
+/* ─── Logo ─────────────────────────────────────────── */
+.logo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo-mark {
+    font-size: 28px;
+    color: var(--accent);
+    line-height: 1;
+}
+
+.logo-name {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.02em;
+}
+
+/* ─── Card ─────────────────────────────────────────── */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.06);
+    padding: 32px 28px;
+    width: 100%;
+}
+
+.card h1 {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 22px;
+}
+
+/* ─── Error message ────────────────────────────────── */
+.error-msg {
+    display: none;
+    background: var(--danger-lt);
+    color: var(--danger);
+    border: 1px solid #FECACA;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.error-msg.show {
+    display: block;
+    animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    75% { transform: translateX(4px); }
+}
+
+/* ─── Fields ───────────────────────────────────────── */
+.field {
+    margin-bottom: 16px;
+}
+
+.field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    margin-bottom: 6px;
+}
+
+.field input {
+    width: 100%;
+    padding: 11px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.field input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+    background: var(--surface);
+}
+
+.field input::placeholder { color: var(--muted); }
+
+/* ─── Password toggle ──────────────────────────────── */
+.input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-wrap input {
+    width: 100%;
+    padding: 11px 14px 11px 14px;
+    padding-right: 40px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.input-wrap input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+    background: var(--surface);
+}
+
+.input-wrap input::placeholder { color: var(--muted); }
+
+.toggle-pw {
+    position: absolute;
+    right: 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+}
+
+.toggle-pw:hover { color: var(--text); }
+
+/* ─── Submit button ────────────────────────────────── */
+.btn-submit {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    margin-top: 4px;
+}
+
+.btn-submit:hover:not(:disabled) { background: var(--accent-dk); }
+.btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Register link ─────────────────────────────────── */
+.register-link {
+    text-align: center;
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 18px;
+}
+
+.register-link a {
+    color: var(--accent);
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.register-link a:hover { color: var(--accent-dk); text-decoration: underline; }
+
+/* ─── Loading spinner ──────────────────────────────── */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 420px) {
+    .page { max-width: 100%; }
+    .card { padding: 24px 20px; }
+}
