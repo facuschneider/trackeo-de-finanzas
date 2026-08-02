@@ -1,96 +1,140 @@
 /* ═══════════════════════════════════════════════════════════
-   Gastos Familiares — Login
-   ═══════════════════════════════════════════════════════════ */
-window.addEventListener('DOMContentLoaded', () => {
-    // Revisamos los parámetros de la URL
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    // Si la URL contiene "?verified=true", mostramos el cartel
-    if (urlParams.get('verified') === 'true') {
-        const modal = document.getElementById('verified-modal');
-        if (modal) {
-            modal.style.display = 'flex';
-            
-            // Opcional: Que se cierre solo después de 5 segundos
-            setTimeout(() => {
-                modal.style.display = 'none';
-            }, 5000);
-        }
-    }
-});
+    Gastos Familiares — Login
+═══════════════════════════════════════════════════════════ */
 const supabaseUrl = window.ENV.SUPABASE_URL;
-const supabaseAnonKey = window.ENV.SUPABASE_ANON_KEY;
+const supabaseAnonKey = window.ENV.SUPABASE_Anon_KEY ?? window.ENV.SUPABASE_ANON_KEY;
 const supabaseDb = supabase.createClient(supabaseUrl, supabaseAnonKey);
 window.supabase = supabaseDb;
 
-const emailInput = document.getElementById('login-email');
+const emailInput    = document.getElementById('login-email');
 const passwordInput = document.getElementById('login-password');
-const btnLogin = document.getElementById('btn-login');
-const errorMsg = document.getElementById('error-msg');
-const togglePw = document.getElementById('toggle-pw');
+const btnLogin      = document.getElementById('btn-login');
+const loginForm     = document.getElementById('login-form');
+const errorMsg      = document.getElementById('error-msg');
+const togglePw      = document.getElementById('toggle-pw');
 
 /* ─── Toggle password visibility ───────────────────── */
 togglePw.addEventListener('click', () => {
-    const isPassword = passwordInput.type === 'password';
-    passwordInput.type = isPassword ? 'text' : 'password';
-    togglePw.setAttribute('aria-label', isPassword ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  const isPassword = passwordInput.type === 'password';
+  passwordInput.type = isPassword ? 'text' : 'password';
+  togglePw.setAttribute('aria-label', isPassword ? 'Ocultar contraseña' : 'Mostrar contraseña');
 });
 
-/* ─── Show error ────────────────────────────────────── */
+/* ─── Show / clear error ───────────────────────────── */
 function showError(msg) {
-    errorMsg.textContent = msg;
-    errorMsg.classList.add('show');
+  // Nos aseguramos de extraer el texto si por alguna razón llega un objeto
+  errorMsg.textContent = typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg;
+  errorMsg.classList.add('show');
+}
+function clearError() {
+  errorMsg.classList.remove('show');
+  errorMsg.textContent = '';
 }
 
-function clearError() {
-    errorMsg.classList.remove('show');
-    errorMsg.textContent = '';
-}
+/* ─── Verified toast y cierre de sesión forzado (Supabase Email Link) ─── */
+window.addEventListener('DOMContentLoaded', async () => {
+  // 1. Detectamos si la URL viene desde el mail de confirmación (contiene access_token)
+  if (window.location.hash.includes('access_token')) {
+    const modal = document.getElementById('verified-modal');
+    if (modal) {
+      // Mostramos tu cartelito/modal personalizado
+      modal.style.display = 'flex';
+      
+      // Limpiamos la URL (borra el hash largo y feo) sin recargar la página
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Ocultamos el cartel después de 5 segundos
+      setTimeout(() => { modal.style.display = 'none'; }, 5000);
+    }
+
+    // 2. El truco clave: Forzamos el cierre de sesión automático que hace Supabase
+    // para que no salte al index y se quede acá en el login
+    try {
+      await supabaseDb.auth.signOut();
+    } catch (signOutErr) {
+      console.error('Error al limpiar sesión automática:', signOutErr);
+    }
+  }
+});
 
 /* ─── Redirect if already logged in ─────────────────── */
 async function checkSession() {
+  // Si en la URL viene el token del mail, NO comprobamos sesión para evitar redirigir al index
+  if (window.location.hash.includes('access_token')) return;
+
+  document.body.classList.add('loading-auth');
+  try {
     const { data: { session } } = await supabaseDb.auth.getSession();
     if (session) {
-        window.location.href = 'index.html';
+      window.location.href = 'index.html';
+      return;
     }
+  } catch (err) {
+    console.error('Session check failed:', err);
+  } finally {
+    document.body.classList.remove('loading-auth');
+  }
 }
 
-/* ─── Login ─────────────────────────────────────────── */
-btnLogin.addEventListener('click', async () => {
-    clearError();
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
+/* ─── Login handler (unificado vía form submit) ────── */
+async function handleLogin(e) {
+  if (e) e.preventDefault();
+  clearError();
 
-    if (!email || !password) {
-        showError('Por favor ingresa tu correo y contraseña.');
-        return;
-    }
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
 
-    btnLogin.disabled = true;
-    btnLogin.innerHTML = '<span class="spinner"></span>';
+  if (!email || !password) {
+    showError('Por favor ingresa tu correo y contraseña.');
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showError('El formato del correo no es válido.');
+    return;
+  }
 
+  btnLogin.disabled = true;
+  btnLogin.innerHTML = '<span class="spinner"></span>';
+
+  try {
     const { data, error } = await supabaseDb.auth.signInWithPassword({ email, password });
 
     if (error) {
-        btnLogin.disabled = false;
-        btnLogin.textContent = 'Entrar';
-        if (error.message.includes('Invalid login credentials')) {
-            showError('Correo o contraseña incorrectos.');
-        } else {
-            showError(error.message);
-        }
-        return;
+      btnLogin.disabled = false;
+      btnLogin.textContent = 'Entrar';
+      
+      if (error.message.includes('Invalid login credentials')) {
+        showError('Correo o contraseña incorrectos.');
+      } else if (error.message.includes('Email not confirmed')) {
+        showError('Confirmá tu correo antes de iniciar sesión.');
+      } else {
+        showError(error.message);
+      }
+      return;
     }
 
     window.location.href = 'index.html';
-});
+  } catch (err) {
+    btnLogin.disabled = false;
+    btnLogin.textContent = 'Entrar';
+    showError('Error de conexión. Verificá tu internet.');
+    console.error(err);
+  }
+}
 
-/* ─── Enter key submits ─────────────────────────────── */
-passwordInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') btnLogin.click();
-});
+loginForm.addEventListener('submit', handleLogin);
+
+/* ─── Enter key navigation ─────────────────────────── */
 emailInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') passwordInput.focus();
+  if (e.key === 'Enter') { e.preventDefault(); passwordInput.focus(); }
 });
 
+/* ─── Escuchador global para cierre de sesión ──────── */
+supabaseDb.auth.onAuthStateChange((event, session) => {
+  if (event === 'SIGNED_OUT') {
+    window.location.href = 'login.html';
+  }
+});
+
+/* ─── Init ─────────────────────────────────────────── */
 checkSession();
