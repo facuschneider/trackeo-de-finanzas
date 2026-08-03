@@ -75,10 +75,7 @@ btnRegister.addEventListener('click', async () => {
         // Le pasamos emailRedirectTo para que el link del correo sepa volver a login.html con el cartelito
         const { data, error } = await supabaseDb.auth.signUp({
             email,
-            password,
-            options: {
-                emailRedirectTo: `https://trackeo-de-finanzas.vercel.app/login.html`
-            }
+            password
         });
 
         if (error) {
