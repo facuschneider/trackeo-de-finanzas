@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════
    Gastos Familiares — Registro
-   ═══════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 
 const supabaseUrl = window.ENV.SUPABASE_URL;
 const supabaseAnonKey = window.ENV.SUPABASE_ANON_KEY;
@@ -29,7 +29,9 @@ togglePw2.addEventListener('click', () => {
 
 /* ─── Show / clear error ────────────────────────────── */
 function showError(msg) {
-    errorMsg.textContent = msg;
+    // Si msg es un objeto de error en vez de texto, le extraemos .message o lo convertimos
+    const textoLimpio = typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg;
+    errorMsg.textContent = textoLimpio;
     errorMsg.classList.add('show');
 }
 
@@ -69,26 +71,48 @@ btnRegister.addEventListener('click', async () => {
     btnRegister.disabled = true;
     btnRegister.innerHTML = '<span class="spinner"></span>';
 
-    const { data, error } = await supabaseDb.auth.signUp({ email, password });
+    try {
+        // Le pasamos emailRedirectTo para que el link del correo sepa volver a login.html con el cartelito
+        const { data, error } = await supabaseDb.auth.signUp({
+            email,
+            password,
+            options: {
+                emailRedirectTo: `${window.location.origin}/login.html?verified=true`
+            }
+        });
 
-    if (error) {
-        btnRegister.disabled = false;
-        btnRegister.textContent = 'Registrarme';
-        if (error.message.includes('already registered')) {
-            showError('Este correo ya está registrado. Inicia sesión.');
-        } else {
-            showError(error.message);
+        if (error) {
+            btnRegister.disabled = false;
+            btnRegister.textContent = 'Registrarme';
+            
+            const msg = error.message || '';
+            if (msg.includes('already registered') || msg.includes('User already registered')) {
+                showError('Este correo ya está registrado. Inicia sesión.');
+            } else if (msg.includes('rate limit')) {
+                showError('Muchos intentos seguidos. Esperá un minuto.');
+            } else {
+                showError(msg);
+            }
+            return;
         }
-        return;
-    }
 
-    if (data.session) {
-        window.location.href = 'index.html';
-    } else {
+        // Si Supabase no requiere confirmación y devolvió sesión directa:
+        if (data.session) {
+            window.location.href = 'index.html';
+        } else {
+            // Si requiere confirmación por mail:
+            btnRegister.disabled = false;
+            btnRegister.textContent = 'Registrarme';
+            showError(' Te enviamos un correo. Por favor confirmalo para activar tu cuenta.');
+            
+            // Opcional: Redirigir al login después de 4 segundos para que lleguen a leer el mensaje
+            setTimeout(() => { window.location.href = 'login.html'; }, 4000);
+        }
+    } catch (err) {
         btnRegister.disabled = false;
         btnRegister.textContent = 'Registrarme';
-        showError('Cuenta creada. Inicia sesión para continuar.');
-        setTimeout(() => { window.location.href = 'login.html'; }, 1500);
+        showError('Error de conexión. Verificá tu internet.');
+        console.error(err);
     }
 });
 
