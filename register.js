@@ -77,7 +77,7 @@ btnRegister.addEventListener('click', async () => {
             email,
             password,
             options: {
-                emailRedirectTo: `${window.location.origin}/login.html?verified=true`
+                emailRedirectTo: `${window.location.origin}/login.html`
             }
         });
 
