@@ -77,7 +77,7 @@ btnRegister.addEventListener('click', async () => {
             email,
             password,
             options: {
-                emailRedirectTo: `${window.location.origin}/login.html`
+                emailRedirectTo: `https://trackeo-de-finanzas.vercel.app/login.html`
             }
         });
 
