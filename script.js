@@ -1,10 +1,13 @@
 /* ═══════════════════════════════════════════════════════════
    Gastos Familiares — Script principal
-   FIX CRÍTICO: La fórmula del balance ahora resta las CUOTAS
-   PAGADAS (no las pendientes). Así al marcar una cuota como
-   pagada el saldo BAJA correctamente.
-   Fórmula correcta:
-     balance = ingresos - gastos - cuotas_pagadas
+   Arquitectura de cuotas refactorizada:
+   - Cada compra tiene `installmentStates`: array de estados
+     por cuota (status, dueDate, type)
+   - Tipos: HISTORICAL (pagadas antes de registrar),
+     CURRENT (mes actual), FUTURE (meses futuros)
+   - Saldo = ingresos - gastos - deducciones_del_mes
+   - Deducciones: cuota del mes PENDING + cuotas futuras PAID
+     (adelantos). Las HISTORICAL nunca descuentan.
 ═══════════════════════════════════════════════════════════ */
 
 const supabaseUrl = window.ENV.SUPABASE_URL;
@@ -13,91 +16,70 @@ const supabaseDb = supabase.createClient(supabaseUrl, supabaseAnonKey);
 window.supabase = supabaseDb;
 
 const CATEGORY_LABELS = {
-  'Alimentación': '🍽 Alimentación',
-  'Transporte':   '🚌 Transporte',
-  'Compras':      '🛍 Compras',
+  'Alimentación': '🍽 Alimentación', 
+  'Transporte': '🚌 Transporte',
+  'Compras': '🛍 Compras', 
   'Departamento': '🏠 Departamento',
-  'Ferretería':   '🔧 Ferretería',
+  'Ferretería':  '🛠️ Ferretería',
   'Servicios':    '🔧 Servicios',
   'Trabajo':      '💼 Trabajo',
   'Deporte':      '⚽ Deporte',
   'Salud':          '🏥 Salud',
   'Salidas':        '🎬 Salidas',
-  'Suscripciones':  '📺 Suscripciones',
-  'Otro':         '📦 Otro',
+  'Suscripciones':  '📺 Suscripciones', 
+  'Otro': '📦 Otro',
 };
 const CARD_CLOSE_DAY = 15;
 const EXTRA_INCOME_LABEL = '__extra__';
 
 /* ─── State ────────────────────────────────────────── */
-let expenses  = [];
-let incomes   = [];
-let cards     = [];
-let purchases = [];
+let expenses = [], incomes = [], cards = [], purchases = [];
 let currentUserId = null;
+let editingExpenseId = null, deletingExpenseId = null;
+let editingPurchaseId = null, deletingPurchaseId = null;
+let deletingCardId = null, editingIncomeId = null, deletingIncomeId = null;
 
-let editingExpenseId   = null;
-let deletingExpenseId  = null;
-let editingPurchaseId  = null;
-let deletingPurchaseId = null;
-let deletingCardId     = null;
-let editingIncomeId    = null;
-let deletingIncomeId   = null;
-
-/* ─── DOM: Incomes ─────────────────────────────────── */
-const incomesListEl        = document.getElementById('incomes-list');
-const newIncomeNameInput   = document.getElementById('new-income-name');
-const newIncomeAmountInput = document.getElementById('new-income-amount');
-const addIncomeBtn         = document.getElementById('add-income');
-const extraAmountInput     = document.getElementById('extra-amount');
-const addExtraBtn          = document.getElementById('add-extra');
-const extraSection         = document.querySelector('.extra-money-section');
-
-/* ─── NUEVO DOM: Tabla movimientos de ingresos ────── */
-const incomeTableEl      = document.getElementById('income-table');
-const incomeTypeFilterEl = document.getElementById('income-type-filter');
-
-/* ─── DOM: Expenses ────────────────────────────────── */
-const expenseTable     = document.getElementById('expense-table');
-const categoryFilter   = document.getElementById('category-filter');
-const addExpenseButton = document.getElementById('add-expense');
-const expenseName      = document.getElementById('expense-name');
-const expenseAmount    = document.getElementById('expense-amount');
-const expenseCategory  = document.getElementById('expense-category');
-const expenseSource    = document.getElementById('expense-source');
-const expenseDate      = document.getElementById('expense-date');
-
-/* ─── DOM: Cards ───────────────────────────────────── */
-const cardsListEl      = document.getElementById('cards-list');
-const newCardNameInput = document.getElementById('new-card-name');
-const addCardBtn       = document.getElementById('add-card');
-
-/* ─── DOM: Purchases ───────────────────────────────── */
-const purchaseNameInput         = document.getElementById('purchase-name');
-const purchaseAmountInput       = document.getElementById('purchase-amount');
-const purchaseInstallmentsInput = document.getElementById('purchase-installments');
-const purchasePaidInput         = document.getElementById('purchase-paid');
-const purchaseCardSelect        = document.getElementById('purchase-card');
-const purchaseDateInput         = document.getElementById('purchase-date');
-const firstInstallmentDateInput = document.getElementById('first-installment-date');
-const addPurchaseBtn            = document.getElementById('add-purchase');
-const installmentsListEl        = document.getElementById('installments-list');
-const cardSummaryEl             = document.getElementById('card-summary');
-
-/* ─── DOM: Summary ─────────────────────────────────── */
-const totalBalanceEl        = document.getElementById('total-balance');
-const headerBalanceWrap     = document.getElementById('header-balance-wrap');
-const totalIncomesEl        = document.getElementById('total-incomes');
-const totalExpensesPaidEl   = document.getElementById('total-expenses-paid');
-const totalPaidInstallEl    = document.getElementById('total-paid-installments');
-
-const btnLogout = document.getElementById('btn-logout');
+/* ─── DOM refs ─────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const incomesListEl = $('incomes-list');
+const newIncomeNameInput = $('new-income-name');
+const newIncomeAmountInput = $('new-income-amount');
+const addIncomeBtn = $('add-income');
+const extraAmountInput = $('extra-amount');
+const addExtraBtn = $('add-extra');
+const extraSection = document.querySelector('.extra-money-section');
+const incomeTableEl = $('income-table');
+const incomeTypeFilterEl = $('income-type-filter');
+const expenseTable = $('expense-table');
+const categoryFilter = $('category-filter');
+const addExpenseButton = $('add-expense');
+const expenseName = $('expense-name'), expenseAmount = $('expense-amount');
+const expenseCategory = $('expense-category'), expenseSource = $('expense-source');
+const expenseDate = $('expense-date');
+const cardsListEl = $('cards-list');
+const newCardNameInput = $('new-card-name');
+const addCardBtn = $('add-card');
+const purchaseNameInput = $('purchase-name');
+const purchaseAmountInput = $('purchase-amount');
+const purchaseInstallmentsInput = $('purchase-installments');
+const purchaseStartFromInput = $('purchase-start-from');
+const purchaseCardSelect = $('purchase-card');
+const firstInstallmentDateInput = $('first-installment-date');
+const addPurchaseBtn = $('add-purchase');
+const installmentsListEl = $('installments-list');
+const cardSummaryEl = $('card-summary');
+const totalBalanceEl = $('total-balance');
+const headerBalanceWrap = $('header-balance-wrap');
+const totalIncomesEl = $('total-incomes');
+const totalExpensesPaidEl = $('total-expenses-paid');
+const totalCurrentDeductionsEl = $('total-current-deductions');
+const btnLogout = $('btn-logout');
 
 /* ═══════════════════════════════════════════════════════════
-   TOAST SYSTEM
+   TOAST & LOADING HELPERS
 ═══════════════════════════════════════════════════════════ */
 function showToast(message, type = 'success', duration = 3000) {
-  const container = document.getElementById('toast-container');
+  const container = $('toast-container');
   if (!container) return;
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
@@ -110,9 +92,6 @@ function showToast(message, type = 'success', duration = 3000) {
   }, duration);
 }
 
-/* ═══════════════════════════════════════════════════════════
-   LOADING STATE HELPER
-═══════════════════════════════════════════════════════════ */
 async function withLoading(btn, fn) {
   const original = btn.innerHTML;
   btn.disabled = true;
@@ -121,407 +100,193 @@ async function withLoading(btn, fn) {
   finally { btn.disabled = false; btn.innerHTML = original; }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   ANIMATED NUMBER COUNTER
-═══════════════════════════════════════════════════════════ */
 function animateNumber(el, from, to, duration = 600) {
   const start = performance.now();
   function step(now) {
     const progress = Math.min((now - start) / duration, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
-    const current = from + (to - from) * eased;
-    el.textContent = current.toFixed(2);
+    el.textContent = (from + (to - from) * eased).toFixed(2);
     if (progress < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
 }
 
 /* ═══════════════════════════════════════════════════════════
-   AUTH GUARD
+   INSTALLMENT STATES — NúCLEO DE LA LÓGICA
 ═══════════════════════════════════════════════════════════ */
-async function init() {
-  document.body.classList.add('loading-auth');
-  try {
-    const { data: { session } } = await supabaseDb.auth.getSession();
-    if (!session) {
-      window.location.href = 'login.html';
-      return;
+
+/**
+ * Genera el array de estados de cuotas para una compra.
+ * @param {number} installments - Total de cuotas
+ * @param {string} firstInstallmentDate - Fecha de la cuota #1 (YYYY-MM-DD)
+ * @param {number} startFrom - Cuota desde la que se empieza a registrar (default 1)
+ *   Las cuotas 1..startFrom-1 se marcan como HISTORICAL PAID.
+ *   Las cuotas startFrom..installments se marcan como PENDING.
+ */
+function generateInstallmentStates(installments, firstInstallmentDate, startFrom = 1) {
+  const states = [];
+  const start = Math.max(1, Math.min(startFrom, installments + 1));
+
+  for (let i = 0; i < installments; i++) {
+    const idx = i + 1;
+    const dueDate = addMonths(firstInstallmentDate, i);
+
+    if (idx < start) {
+      // Cuota histórica: pagada en el pasado, NO afecta saldo
+      states.push({
+        idx,
+        status: 'PAID',
+        type: 'HISTORICAL',
+        dueDate,
+      });
+    } else {
+      // Cuota pendiente (CURRENT si vence este mes, FUTURE si vence después)
+      const dueMonth = getMonthKey(dueDate);
+      const currentMonth = getCurrentMonthKey();
+      const type = dueMonth < currentMonth ? 'OVERDUE'
+                 : dueMonth === currentMonth ? 'CURRENT'
+                 : 'FUTURE';
+      states.push({
+        idx,
+        status: 'PENDING',
+        type,
+        dueDate,
+      });
     }
-    currentUserId = session.user.id;
-
-    supabaseDb.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') window.location.href = 'login.html';
-    });
-
-    await loadAll();
-  } catch (err) {
-    console.error('Init error:', err);
-    showToast('Error al inicializar la app.', 'error');
-  } finally {
-    document.body.classList.remove('loading-auth');
   }
+  return states;
 }
 
-btnLogout.addEventListener('click', async () => {
-  btnLogout.disabled = true;
-  await supabaseDb.auth.signOut();
-  window.location.href = 'login.html';
-});
-
-/* ═══════════════════════════════════════════════════════════
-   DATA LOADING
-═══════════════════════════════════════════════════════════ */
-async function loadAll() {
-  if (!currentUserId) {
-    const { data: { session } } = await supabaseDb.auth.getSession();
-    if (!session) return;
-    currentUserId = session.user.id;
-  }
-
-  expenseTable.innerHTML = '<tr><td colspan="6"><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div></td></tr>';
-
-  try {
-    const [expRes, incRes, cardRes, purRes] = await Promise.all([
-      supabaseDb.from('expenses').select('*').eq('user_id', currentUserId).order('date', { ascending: false }),
-      supabaseDb.from('incomes').select('*').eq('user_id', currentUserId).order('id'),
-      supabaseDb.from('cards').select('*').eq('user_id', currentUserId).order('id'),
-      supabaseDb.from('card_purchases').select('*').eq('user_id', currentUserId).order('created_at', { ascending: false }),
-    ]);
-
-    const firstError = [expRes, incRes, cardRes, purRes].find(r => r.error);
-    if (firstError) {
-      showToast('Error al cargar datos: ' + firstError.error.message, 'error');
-      return;
+/**
+ * Recalcula el tipo de cada cuota según el mes actual.
+ * Útil cuando cambia el mes (o al cargar datos antiguos).
+ */
+function refreshInstallmentTypes(purchase) {
+  if (!purchase.installmentStates) return;
+  const currentMonth = getCurrentMonthKey();
+  purchase.installmentStates.forEach(inst => {
+    const dueMonth = getMonthKey(inst.dueDate);
+    if (inst.status === 'PAID' && inst.type === 'HISTORICAL') return; // no tocar
+    if (inst.status === 'PAID' && inst.type === 'ADVANCED') return;   // adelanto, se mantiene
+    if (inst.status === 'PAID' && inst.type === 'CURRENT_PAID') return; // pagada este mes
+    // PENDING: actualizar tipo
+    if (inst.status === 'PENDING') {
+      inst.type = dueMonth < currentMonth ? 'OVERDUE'
+                : dueMonth === currentMonth ? 'CURRENT'
+                : 'FUTURE';
     }
-
-    expenses  = expRes.data  || [];
-    incomes   = incRes.data  || [];
-    cards     = cardRes.data || [];
-    purchases = purRes.data  || [];
-
-    renderIncomes();
-    renderIncomeMovements();
-    renderCards();
-    renderCardSelectors();
-    renderExpenseSourceOptions();
-    updateUI();
-    renderInstallments();
-    initReports();
-  } catch (err) {
-    console.error('loadAll error:', err);
-    showToast('Error de conexión. Verificá tu internet.', 'error');
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════
-   INCOMES DINÁMICOS
-═══════════════════════════════════════════════════════════ */
-function isExtraIncome(income) {
-  return income.label === EXTRA_INCOME_LABEL;
-}
-function getRegularIncomes() { return incomes.filter(i => !isExtraIncome(i)); }
-function getExtraIncomes()   { return incomes.filter(i => isExtraIncome(i)); }
-
-function renderIncomes() {
-  const regular = getRegularIncomes();
-  incomesListEl.innerHTML = '';
-
-  if (regular.length === 0) {
-    incomesListEl.innerHTML = `
-      <div class="incomes-list-empty">
-        Aún no agregaste ingresos fijos. Usá el formulario de abajo para crear el primero.
-      </div>`;
-  } else {
-    regular.forEach(inc => {
-      const item = document.createElement('div');
-      item.className = 'income-item-dynamic';
-      item.innerHTML = `
-        <div class="income-item-info">
-          <div class="income-item-name">${escapeHtml(inc.label)}</div>
-          <div class="income-item-amount">$${(inc.amount || 0).toFixed(2)}</div>
-        </div>
-        <div class="income-item-actions">
-          <button class="icon-btn edit" title="Editar" data-action="edit-income" data-id="${inc.id}">✏️</button>
-          <button class="icon-btn delete" title="Eliminar" data-action="delete-income" data-id="${inc.id}">🗑️</button>
-        </div>`;
-      incomesListEl.appendChild(item);
-    });
-  }
-
-  renderExpenseSourceOptions();
-  updateBalanceSummary();
-}
-
-incomesListEl.addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  const id = Number(btn.dataset.id);
-  if (btn.dataset.action === 'edit-income') openEditIncomeModal(id);
-  if (btn.dataset.action === 'delete-income') openDeleteIncomeModal(id);
-});
-
-function checkIncomeInputs() {
-  const valid = newIncomeNameInput.value.trim() &&
-                newIncomeAmountInput.value &&
-                parseFloat(newIncomeAmountInput.value) > 0;
-  addIncomeBtn.disabled = !valid;
-}
-newIncomeNameInput.addEventListener('input', checkIncomeInputs);
-newIncomeAmountInput.addEventListener('input', checkIncomeInputs);
-
-addIncomeBtn.addEventListener('click', async () => {
-  const label = newIncomeNameInput.value.trim();
-  const amount = parseFloat(newIncomeAmountInput.value);
-  if (!label || isNaN(amount) || amount <= 0) return;
-
-  await withLoading(addIncomeBtn, async () => {
-    const { data, error } = await supabaseDb
-      .from('incomes')
-      .insert({ label, amount, user_id: currentUserId })
-      .select();
-
-    if (error) {
-      showToast('Error al agregar ingreso: ' + error.message, 'error');
-      return;
-    }
-    incomes.push(data[0]);
-    newIncomeNameInput.value = '';
-    newIncomeAmountInput.value = '';
-    addIncomeBtn.disabled = true;
-    renderIncomes();
-    renderIncomeMovements();
-    showToast('Ingreso agregado', 'success');
   });
-});
-
-function openEditIncomeModal(id) {
-  const inc = incomes.find(i => i.id === id);
-  if (!inc || isExtraIncome(inc)) return;
-  document.getElementById('edit-income-name').value = inc.label;
-  document.getElementById('edit-income-amount').value = inc.amount;
-  editingIncomeId = id;
-  openModal('edit-income-modal');
 }
 
-document.getElementById('confirm-edit-income').addEventListener('click', async () => {
-  const label = document.getElementById('edit-income-name').value.trim();
-  const amount = parseFloat(document.getElementById('edit-income-amount').value);
-
-  if (!label || isNaN(amount) || amount < 0) {
-    showToast('Completá todos los campos correctamente.', 'error');
+/**
+ * Migra datos antiguos (con paidCount) al nuevo formato.
+ * Asume que las primeras N cuotas están pagadas (secuencial).
+ */
+function migrateLegacyPurchase(p) {
+  if (p.installmentStates && Array.isArray(p.installmentStates) && p.installmentStates.length > 0) {
+    refreshInstallmentTypes(p);
     return;
   }
-
-  const btn = document.getElementById('confirm-edit-income');
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('incomes')
-      .update({ label, amount })
-      .eq('id', editingIncomeId)
-      .eq('user_id', currentUserId);
-
-    if (error) {
-      showToast('Error al editar: ' + error.message, 'error');
-      return;
+  const states = [];
+  const paidCount = p.paidCount || 0;
+  for (let i = 0; i < p.installments; i++) {
+    const idx = i + 1;
+    const dueDate = addMonths(p.firstInstallmentDate, i);
+    if (idx <= paidCount) {
+      // Asumimos que son cuotas pagadas en su momento (mes de vencimiento)
+      // Las marcamos como CURRENT_PAID si vencían este mes, o ADVANCED si eran futuras
+      // Para simplificar migración, las tratamos como pagadas normales
+      states.push({ idx, status: 'PAID', type: 'LEGACY_PAID', dueDate });
+    } else {
+      const dueMonth = getMonthKey(dueDate);
+      const currentMonth = getCurrentMonthKey();
+      const type = dueMonth < currentMonth ? 'OVERDUE'
+                 : dueMonth === currentMonth ? 'CURRENT'
+                 : 'FUTURE';
+      states.push({ idx, status: 'PENDING', type, dueDate });
     }
-    const idx = incomes.findIndex(i => i.id === editingIncomeId);
-    if (idx > -1) incomes[idx] = { ...incomes[idx], label, amount };
-    closeModal('edit-income-modal');
-    renderIncomes();
-    renderIncomeMovements();
-    showToast('Ingreso actualizado', 'success');
-  });
-});
-
-function openDeleteIncomeModal(id) {
-  deletingIncomeId = id;
-  openModal('delete-income-modal');
-}
-
-document.getElementById('confirm-delete-income').addEventListener('click', async () => {
-  const btn = document.getElementById('confirm-delete-income');
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('incomes')
-      .delete()
-      .eq('id', deletingIncomeId)
-      .eq('user_id', currentUserId);
-
-    if (error) {
-      showToast('Error al eliminar: ' + error.message, 'error');
-      return;
-    }
-    incomes = incomes.filter(i => i.id !== deletingIncomeId);
-    closeModal('delete-income-modal');
-    renderIncomes();
-    renderIncomeMovements();
-    showToast('Ingreso eliminado', 'success');
-  });
-});
-
-/* ═══════════════════════════════════════════════════════════
-   NUEVA: TABLA DE MOVIMIENTOS DE INGRESOS
-   Muestra SOLO sueldos + dinero extra (no gastos ni cuotas)
-═══════════════════════════════════════════════════════════ */
-function renderIncomeMovements() {
-  const filterType = incomeTypeFilterEl.value;
-
-  let filtered = incomes.slice();
-
-  if (filterType === 'salary') {
-    filtered = filtered.filter(i => !isExtraIncome(i));
-  } else if (filterType === 'extra') {
-    filtered = filtered.filter(i => isExtraIncome(i));
   }
-
-  // Ordenar: más recientes primero (por id desc, asumiendo que es autoincremental)
-  filtered.sort((a, b) => (b.id || 0) - (a.id || 0));
-
-  incomeTableEl.innerHTML = '';
-
-  if (filtered.length === 0) {
-    const row = document.createElement('tr');
-    row.className = 'empty-row';
-    row.innerHTML = `
-      <td colspan="5">
-        <span class="empty-icon">💵</span>
-        Sin movimientos de ingresos.
-      </td>`;
-    incomeTableEl.appendChild(row);
-    return;
-  }
-
-  filtered.forEach((inc, idx) => {
-    const row = document.createElement('tr');
-    if (idx === 0) row.classList.add('new-row');
-
-    const isExtra = isExtraIncome(inc);
-    const typeLabel = isExtra
-      ? '<span class="income-type-pill extra">💰 Extra</span>'
-      : '<span class="income-type-pill salary">💼 Sueldo</span>';
-    const displayName = isExtra ? 'Dinero extra' : escapeHtml(inc.label);
-    const dateStr = inc.created_at
-      ? formatDate(inc.created_at.slice(0, 10))
-      : '—';
-
-    // Solo permitir editar/eliminar sueldos (no dinero extra)
-    const actionsHtml = isExtra
-      ? `<div class="action-cell">
-           <button class="icon-btn delete" title="Eliminar" data-action="delete-income-movement" data-id="${inc.id}">🗑️</button>
-         </div>`
-      : `<div class="action-cell">
-           <button class="icon-btn edit" title="Editar" data-action="edit-income-movement" data-id="${inc.id}">✏️</button>
-           <button class="icon-btn delete" title="Eliminar" data-action="delete-income-movement" data-id="${inc.id}">🗑️</button>
-         </div>`;
-
-    row.innerHTML = `
-      <td data-label="Concepto">${displayName}</td>
-      <td data-label="Tipo">${typeLabel}</td>
-      <td data-label="Monto" class="amount-cell positive">+$${(inc.amount || 0).toFixed(2)}</td>
-      <td data-label="Fecha">${dateStr}</td>
-      <td data-label="Acciones">${actionsHtml}</td>`;
-    incomeTableEl.appendChild(row);
-  });
+  p.installmentStates = states;
+  refreshInstallmentTypes(p);
 }
 
-incomeTableEl.addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  const id = Number(btn.dataset.id);
-  if (btn.dataset.action === 'edit-income-movement') openEditIncomeModal(id);
-  if (btn.dataset.action === 'delete-income-movement') openDeleteIncomeModal(id);
-});
-
-incomeTypeFilterEl.addEventListener('change', renderIncomeMovements);
-
-/* ═══════════════════════════════════════════════════════════
-   DINERO EXTRA
-═══════════════════════════════════════════════════════════ */
-function checkExtraInput() {
-  const amount = parseFloat(extraAmountInput.value);
-  addExtraBtn.disabled = !(extraAmountInput.value && !isNaN(amount) && amount > 0);
+function getCurrentMonthKey() {
+  const now = new Date();
+  return now.getFullYear() * 12 + now.getMonth();
 }
-extraAmountInput.addEventListener('input', checkExtraInput);
 
-addExtraBtn.addEventListener('click', async () => {
-  const amount = parseFloat(extraAmountInput.value);
-  if (isNaN(amount) || amount <= 0) return;
-
-  const previousBalance = computeBalance();
-
-  await withLoading(addExtraBtn, async () => {
-    const { data, error } = await supabaseDb
-      .from('incomes')
-      .insert({
-        label: EXTRA_INCOME_LABEL,
-        amount,
-        user_id: currentUserId,
-      })
-      .select();
-
-    if (error) {
-      showToast('Error al agregar dinero extra: ' + error.message, 'error');
-      return;
-    }
-    incomes.push(data[0]);
-    extraAmountInput.value = '';
-    addExtraBtn.disabled = true;
-
-    if (extraSection) {
-      extraSection.classList.remove('extra-pulse');
-      void extraSection.offsetWidth;
-      extraSection.classList.add('extra-pulse');
-    }
-
-    const newBalance = computeBalance();
-    animateBalance(previousBalance, newBalance);
-
-    updateBalanceSummary();
-    renderIncomeMovements();
-    showToast(`+$${amount.toFixed(2)} sumados al saldo`, 'success');
-  });
-});
+function getMonthKey(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.getFullYear() * 12 + d.getMonth();
+}
 
 /* ═══════════════════════════════════════════════════════════
-   BALANCE DINÁMICO — FÓRMULA CORREGIDA
-   balance = ingresos - gastos - CUOTAS_PAGADAS
-   (NO cuotas pendientes, así al pagar una el saldo BAJA)
+   CÁLCULO DEL SALDO — LÓGICA CENTRAL
 ═══════════════════════════════════════════════════════════ */
-function computePaidInstallments() {
-  let paid = 0;
+
+/**
+ * Calcula el total que se debe descontar del saldo este mes.
+ * Reglas:
+ * - Cuota PENDING del mes actual (CURRENT) → descuenta
+ * - Cuota PENDING de meses pasados (OVERDUE) → descuenta (deuda)
+ * - Cuota PAID tipo ADVANCED (adelanto de mes futuro) → descuenta
+ * - Cuota PAID tipo HISTORICAL → NO descuenta
+ * - Cuota PAID tipo CURRENT_PAID (pagada este mes) → NO descuenta (ya se debitó al marcar)
+ * - Cuota PAID tipo LEGACY_PAID → NO descuenta (migración)
+ * - Cuota PENDING tipo FUTURE → NO descuenta (espera a su mes)
+ */
+function computeCurrentMonthDeductions() {
+  const currentMonth = getCurrentMonthKey();
+  let total = 0;
+
   purchases.forEach(p => {
-    if (!p.amount || !p.installments) return;
+    if (!p.installmentStates) return;
     const installmentAmount = p.amount / p.installments;
-    paid += installmentAmount * (p.paidCount || 0);
+
+    p.installmentStates.forEach(inst => {
+      // PAID con tipo LEGACY_PAID o HISTORICAL: no descuenta
+      if (inst.status === 'PAID' && (inst.type === 'HISTORICAL' || inst.type === 'LEGACY_PAID' || inst.type === 'CURRENT_PAID')) {
+        return;
+      }
+      // PAID tipo ADVANCED: ya se debitó al marcarla, no descuenta otra vez
+      if (inst.status === 'PAID' && inst.type === 'ADVANCED') {
+        return;
+      }
+      // PENDING
+      if (inst.status === 'PENDING') {
+        const dueMonth = getMonthKey(inst.dueDate);
+        if (dueMonth <= currentMonth) {
+          // Cuota del mes actual o pasada pendiente → descuenta
+          total += installmentAmount;
+        }
+        // FUTURE PENDING → no descuenta
+      }
+    });
   });
-  return paid;
+
+  return total;
 }
 
 function computeBalance() {
   const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const paidInstallments = computePaidInstallments();
-  // ✅ CORRECCIÓN: restamos las cuotas PAGADAS, no las pendientes
-  return totalInc - totalExp - paidInstallments;
+  const deductions = computeCurrentMonthDeductions();
+  return totalInc - totalExp - deductions;
 }
 
 function updateBalanceSummary() {
   const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const paidInstallments = computePaidInstallments();
-  const balance = totalInc - totalExp - paidInstallments;
+  const deductions = computeCurrentMonthDeductions();
+  const balance = totalInc - totalExp - deductions;
 
-  totalIncomesEl.textContent      = totalInc.toFixed(2);
+  totalIncomesEl.textContent = totalInc.toFixed(2);
   totalExpensesPaidEl.textContent = totalExp.toFixed(2);
-  totalPaidInstallEl.textContent  = paidInstallments.toFixed(2);
+  totalCurrentDeductionsEl.textContent = deductions.toFixed(2);
 
   // Color dinámico del balance
   headerBalanceWrap.classList.remove('balance-positive', 'balance-negative');
-  if (balance >= 0) {
-    headerBalanceWrap.classList.add('balance-positive');
-  } else {
-    headerBalanceWrap.classList.add('balance-negative');
-  }
+  headerBalanceWrap.classList.add(balance >= 0 ? 'balance-positive' : 'balance-negative');
 
   const previousText = totalBalanceEl.textContent;
   const newText = balance.toFixed(2);
@@ -535,116 +300,329 @@ function animateBalance(from, to) {
   animateNumber(totalBalanceEl, from, to, 700);
   headerBalanceWrap.classList.remove('balance-pulse', 'balance-shake');
   void headerBalanceWrap.offsetWidth;
+  headerBalanceWrap.classList.add(to < 0 && from >= 0 ? 'balance-shake' : 'balance-pulse');
+}
 
-  if (to < 0 && from >= 0) {
-    headerBalanceWrap.classList.add('balance-shake');
-  } else {
-    headerBalanceWrap.classList.add('balance-pulse');
+/* ═══════════════════════════════════════════════════════════
+   AUTH & DATA LOADING
+═══════════════════════════════════════════════════════════ */
+async function init() {
+  document.body.classList.add('loading-auth');
+  try {
+    const { data: { session } } = await supabaseDb.auth.getSession();
+    if (!session) { window.location.href = 'login.html'; return; }
+    currentUserId = session.user.id;
+    supabaseDb.auth.onAuthStateChange(event => {
+      if (event === 'SIGNED_OUT') window.location.href = 'login.html';
+    });
+    await loadAll();
+  } catch (err) {
+    console.error('Init error:', err);
+    showToast('Error al inicializar.', 'error');
+  } finally {
+    document.body.classList.remove('loading-auth');
   }
 }
+
+btnLogout.addEventListener('click', async () => {
+  btnLogout.disabled = true;
+  await supabaseDb.auth.signOut();
+  window.location.href = 'login.html';
+});
+
+async function loadAll() {
+  if (!currentUserId) {
+    const { data: { session } } = await supabaseDb.auth.getSession();
+    if (!session) return;
+    currentUserId = session.user.id;
+  }
+
+  expenseTable.innerHTML = '<tr><td colspan="6"><div class="skeleton skeleton-row"></div></td></tr>';
+
+  try {
+    const [expRes, incRes, cardRes, purRes] = await Promise.all([
+      supabaseDb.from('expenses').select('*').eq('user_id', currentUserId).order('date', { ascending: false }),
+      supabaseDb.from('incomes').select('*').eq('user_id', currentUserId).order('id'),
+      supabaseDb.from('cards').select('*').eq('user_id', currentUserId).order('id'),
+      supabaseDb.from('card_purchases').select('*').eq('user_id', currentUserId).order('created_at', { ascending: false }),
+    ]);
+
+    const firstError = [expRes, incRes, cardRes, purRes].find(r => r.error);
+    if (firstError) { showToast('Error al cargar: ' + firstError.error.message, 'error'); return; }
+
+    expenses = expRes.data || [];
+    incomes = incRes.data || [];
+    cards = cardRes.data || [];
+    purchases = (purRes.data || []).map(p => {
+      migrateLegacyPurchase(p);
+      return p;
+    });
+
+    renderIncomes();
+    renderIncomeMovements();
+    renderCards();
+    renderCardSelectors();
+    renderExpenseSourceOptions();
+    updateUI();
+    renderInstallments();
+    initReports();
+  } catch (err) {
+    console.error('loadAll error:', err);
+    showToast('Error de conexión.', 'error');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INCOMES (dinámicos)
+═══════════════════════════════════════════════════════════ */
+function isExtraIncome(i) { return i.label === EXTRA_INCOME_LABEL; }
+function getRegularIncomes() { return incomes.filter(i => !isExtraIncome(i)); }
+
+function renderIncomes() {
+  const regular = getRegularIncomes();
+  incomesListEl.innerHTML = '';
+  if (regular.length === 0) {
+    incomesListEl.innerHTML = '<div class="incomes-list-empty">Aún no agregaste ingresos fijos.</div>';
+  } else {
+    regular.forEach(inc => {
+      const item = document.createElement('div');
+      item.className = 'income-item-dynamic';
+      item.innerHTML = `
+        <div class="income-item-info">
+          <div class="income-item-name">${escapeHtml(inc.label)}</div>
+          <div class="income-item-amount">$${(inc.amount || 0).toFixed(2)}</div>
+        </div>
+        <div class="income-item-actions">
+          <button class="icon-btn edit" data-action="edit-income" data-id="${inc.id}">✏️</button>
+          <button class="icon-btn delete" data-action="delete-income" data-id="${inc.id}">🗑️</button>
+        </div>`;
+      incomesListEl.appendChild(item);
+    });
+  }
+  renderExpenseSourceOptions();
+  updateBalanceSummary();
+}
+
+incomesListEl.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  if (btn.dataset.action === 'edit-income') openEditIncomeModal(id);
+  if (btn.dataset.action === 'delete-income') openDeleteIncomeModal(id);
+});
+
+function checkIncomeInputs() {
+  addIncomeBtn.disabled = !(newIncomeNameInput.value.trim() &&
+    newIncomeAmountInput.value && parseFloat(newIncomeAmountInput.value) > 0);
+}
+newIncomeNameInput.addEventListener('input', checkIncomeInputs);
+newIncomeAmountInput.addEventListener('input', checkIncomeInputs);
+
+addIncomeBtn.addEventListener('click', async () => {
+  const label = newIncomeNameInput.value.trim();
+  const amount = parseFloat(newIncomeAmountInput.value);
+  if (!label || isNaN(amount) || amount <= 0) return;
+
+  await withLoading(addIncomeBtn, async () => {
+    const { data, error } = await supabaseDb.from('incomes')
+      .insert({ label, amount, user_id: currentUserId }).select();
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    incomes.push(data[0]);
+    newIncomeNameInput.value = ''; newIncomeAmountInput.value = '';
+    addIncomeBtn.disabled = true;
+    renderIncomes(); renderIncomeMovements();
+    showToast('Ingreso agregado', 'success');
+  });
+});
+
+function openEditIncomeModal(id) {
+  const inc = incomes.find(i => i.id === id);
+  if (!inc || isExtraIncome(inc)) return;
+  $('edit-income-name').value = inc.label;
+  $('edit-income-amount').value = inc.amount;
+  editingIncomeId = id;
+  openModal('edit-income-modal');
+}
+
+$('confirm-edit-income').addEventListener('click', async () => {
+  const label = $('edit-income-name').value.trim();
+  const amount = parseFloat($('edit-income-amount').value);
+  if (!label || isNaN(amount) || amount < 0) { showToast('Completá los campos.', 'error'); return; }
+
+  await withLoading($('confirm-edit-income'), async () => {
+    const { error } = await supabaseDb.from('incomes')
+      .update({ label, amount }).eq('id', editingIncomeId).eq('user_id', currentUserId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    const idx = incomes.findIndex(i => i.id === editingIncomeId);
+    if (idx > -1) incomes[idx] = { ...incomes[idx], label, amount };
+    closeModal('edit-income-modal');
+    renderIncomes(); renderIncomeMovements();
+    showToast('Ingreso actualizado', 'success');
+  });
+});
+
+function openDeleteIncomeModal(id) {
+  deletingIncomeId = id;
+  openModal('delete-income-modal');
+}
+
+$('confirm-delete-income').addEventListener('click', async () => {
+  await withLoading($('confirm-delete-income'), async () => {
+    const { error } = await supabaseDb.from('incomes')
+      .delete().eq('id', deletingIncomeId).eq('user_id', currentUserId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    incomes = incomes.filter(i => i.id !== deletingIncomeId);
+    closeModal('delete-income-modal');
+    renderIncomes(); renderIncomeMovements();
+    showToast('Ingreso eliminado', 'success');
+  });
+});
+
+/* ─── Income movements table ───────────────────────── */
+function renderIncomeMovements() {
+  const filter = incomeTypeFilterEl.value;
+  let filtered = incomes.slice();
+  if (filter === 'salary') filtered = filtered.filter(i => !isExtraIncome(i));
+  else if (filter === 'extra') filtered = filtered.filter(i => isExtraIncome(i));
+  filtered.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+  incomeTableEl.innerHTML = '';
+  if (filtered.length === 0) {
+    incomeTableEl.innerHTML = '<tr class="empty-row"><td colspan="5"><span class="empty-icon">💵</span>Sin movimientos.</td></tr>';
+    return;
+  }
+  filtered.forEach((inc, idx) => {
+    const row = document.createElement('tr');
+    if (idx === 0) row.classList.add('new-row');
+    const isExtra = isExtraIncome(inc);
+    const typeLabel = isExtra
+      ? '<span class="income-type-pill extra">💰 Extra</span>'
+      : '<span class="income-type-pill salary">💼 Sueldo</span>';
+    const displayName = isExtra ? 'Dinero extra' : escapeHtml(inc.label);
+    const dateStr = inc.created_at ? formatDate(inc.created_at.slice(0, 10)) : '—';
+    const actionsHtml = isExtra
+      ? `<button class="icon-btn delete" data-action="delete-income-movement" data-id="${inc.id}">🗑️</button>`
+      : `<button class="icon-btn edit" data-action="edit-income-movement" data-id="${inc.id}">✏️</button>
+         <button class="icon-btn delete" data-action="delete-income-movement" data-id="${inc.id}">🗑️</button>`;
+    row.innerHTML = `
+      <td data-label="Concepto">${displayName}</td>
+      <td data-label="Tipo">${typeLabel}</td>
+      <td data-label="Monto" class="amount-cell positive">+$${(inc.amount || 0).toFixed(2)}</td>
+      <td data-label="Fecha">${dateStr}</td>
+      <td data-label="Acciones"><div class="action-cell">${actionsHtml}</div></td>`;
+    incomeTableEl.appendChild(row);
+  });
+}
+
+incomeTableEl.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  if (btn.dataset.action.includes('edit')) openEditIncomeModal(id);
+  if (btn.dataset.action.includes('delete')) openDeleteIncomeModal(id);
+});
+incomeTypeFilterEl.addEventListener('change', renderIncomeMovements);
+
+/* ─── Extra money ──────────────────────────────────── */
+function checkExtraInput() {
+  const amount = parseFloat(extraAmountInput.value);
+  addExtraBtn.disabled = !(extraAmountInput.value && !isNaN(amount) && amount > 0);
+}
+extraAmountInput.addEventListener('input', checkExtraInput);
+
+addExtraBtn.addEventListener('click', async () => {
+  const amount = parseFloat(extraAmountInput.value);
+  if (isNaN(amount) || amount <= 0) return;
+  const previousBalance = computeBalance();
+
+  await withLoading(addExtraBtn, async () => {
+    const { data, error } = await supabaseDb.from('incomes')
+      .insert({ label: EXTRA_INCOME_LABEL, amount, user_id: currentUserId }).select();
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    incomes.push(data[0]);
+    extraAmountInput.value = ''; addExtraBtn.disabled = true;
+    if (extraSection) {
+      extraSection.classList.remove('extra-pulse');
+      void extraSection.offsetWidth;
+      extraSection.classList.add('extra-pulse');
+    }
+    animateBalance(previousBalance, computeBalance());
+    updateBalanceSummary();
+    renderIncomeMovements();
+    showToast(`+$${amount.toFixed(2)} sumados al saldo`, 'success');
+  });
+});
 
 /* ═══════════════════════════════════════════════════════════
    EXPENSES
 ═══════════════════════════════════════════════════════════ */
 function renderExpenseSourceOptions() {
   const regular = getRegularIncomes();
-  const optionsHtml = '<option value="" disabled selected>Origen</option>' +
+  const html = '<option value="" disabled selected>Origen</option>' +
     regular.map(i => `<option value="${escapeHtml(i.label)}">${escapeHtml(i.label)}</option>`).join('');
-  expenseSource.innerHTML = optionsHtml;
-  const editSource = document.getElementById('edit-expense-source');
-  if (editSource) editSource.innerHTML = optionsHtml;
+  expenseSource.innerHTML = html;
+  const editSource = $('edit-expense-source');
+  if (editSource) editSource.innerHTML = html;
 }
 
 function checkInputs() {
-  const valid = expenseName.value.trim() &&
-                expenseAmount.value &&
-                parseFloat(expenseAmount.value) > 0 &&
-                expenseCategory.value &&
-                expenseSource.value &&
-                expenseDate.value;
-  addExpenseButton.disabled = !valid;
+  addExpenseButton.disabled = !(expenseName.value.trim() &&
+    expenseAmount.value && parseFloat(expenseAmount.value) > 0 &&
+    expenseCategory.value && expenseSource.value && expenseDate.value);
 }
-[expenseName, expenseAmount, expenseCategory, expenseSource, expenseDate].forEach(el => {
-  el.addEventListener('input', checkInputs);
-});
+[expenseName, expenseAmount, expenseCategory, expenseSource, expenseDate].forEach(el => el.addEventListener('input', checkInputs));
 
 addExpenseButton.addEventListener('click', async () => {
-  const name     = expenseName.value.trim();
-  const amount   = parseFloat(expenseAmount.value);
+  const name = expenseName.value.trim();
+  const amount = parseFloat(expenseAmount.value);
   const category = expenseCategory.value;
-  const source   = expenseSource.value;
-  const date     = expenseDate.value;
-
+  const source = expenseSource.value;
+  const date = expenseDate.value;
   if (!name || isNaN(amount) || amount <= 0 || !category || !source || !date) return;
 
   await withLoading(addExpenseButton, async () => {
-    const { data, error } = await supabaseDb
-      .from('expenses')
-      .insert({ name, amount, category, source, date, user_id: currentUserId })
-      .select();
-
-    if (error) {
-      showToast('Error al agregar gasto: ' + error.message, 'error');
-      return;
-    }
+    const { data, error } = await supabaseDb.from('expenses')
+      .insert({ name, amount, category, source, date, user_id: currentUserId }).select();
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
     expenses.unshift(data[0]);
-    expenseName.value = '';
-    expenseAmount.value = '';
-    expenseCategory.value = '';
-    expenseSource.value = '';
-    expenseDate.value = '';
+    expenseName.value = ''; expenseAmount.value = '';
+    expenseCategory.value = ''; expenseSource.value = ''; expenseDate.value = '';
     addExpenseButton.disabled = true;
-    updateUI();
-    renderReport();
+    updateUI(); renderReport();
     showToast('Gasto agregado', 'success');
   });
 });
 
 function updateUI() {
-  const filterValue = categoryFilter.value;
-  const filtered = filterValue === 'All'
-    ? expenses
-    : expenses.filter(e => e.category === filterValue);
-
+  const filter = categoryFilter.value;
+  const filtered = filter === 'All' ? expenses : expenses.filter(e => e.category === filter);
   expenseTable.innerHTML = '';
 
   if (filtered.length === 0) {
-    const row = document.createElement('tr');
-    row.className = 'empty-row';
-    row.innerHTML = `
-      <td colspan="6">
-        <span class="empty-icon">📋</span>
-        Sin gastos registrados. ¡Agrega el primero!
-      </td>`;
-    expenseTable.appendChild(row);
+    expenseTable.innerHTML = '<tr class="empty-row"><td colspan="6"><span class="empty-icon">📋</span>Sin gastos registrados.</td></tr>';
   } else {
     filtered.forEach((expense, idx) => {
       const row = document.createElement('tr');
       if (idx === 0) row.classList.add('new-row');
       const label = CATEGORY_LABELS[expense.category] || expense.category;
-      const dateFormatted = formatDate(expense.date);
-      const sourceHtml = expense.source
-        ? `<span class="source-pill">${escapeHtml(expense.source)}</span>`
-        : '—';
+      const sourceHtml = expense.source ? `<span class="source-pill">${escapeHtml(expense.source)}</span>` : '—';
       row.innerHTML = `
         <td data-label="Descripción">${escapeHtml(expense.name)}</td>
         <td data-label="Monto" class="amount-cell">$${expense.amount.toFixed(2)}</td>
         <td data-label="Categoría"><span class="category-pill">${label}</span></td>
         <td data-label="Origen">${sourceHtml}</td>
-        <td data-label="Fecha">${dateFormatted}</td>
-        <td data-label="Acciones">
-          <div class="action-cell">
-            <button class="icon-btn edit" title="Editar" data-action="edit" data-id="${expense.id}">✏️</button>
-            <button class="icon-btn delete" title="Eliminar" data-action="delete" data-id="${expense.id}">🗑️</button>
-          </div>
-        </td>`;
+        <td data-label="Fecha">${formatDate(expense.date)}</td>
+        <td data-label="Acciones"><div class="action-cell">
+          <button class="icon-btn edit" data-action="edit" data-id="${expense.id}">✏️</button>
+          <button class="icon-btn delete" data-action="delete" data-id="${expense.id}">🗑️</button>
+        </div></td>`;
       expenseTable.appendChild(row);
     });
   }
   updateBalanceSummary();
 }
 
-expenseTable.addEventListener('click', (e) => {
+expenseTable.addEventListener('click', e => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const id = Number(btn.dataset.id);
@@ -655,72 +633,47 @@ expenseTable.addEventListener('click', (e) => {
 function openEditModal(id) {
   const expense = expenses.find(e => e.id === id);
   if (!expense) return;
-  document.getElementById('edit-expense-name').value     = expense.name;
-  document.getElementById('edit-expense-amount').value   = expense.amount;
-  document.getElementById('edit-expense-category').value = expense.category;
-  document.getElementById('edit-expense-source').value   = expense.source || '';
-  document.getElementById('edit-expense-date').value     = expense.date;
+  $('edit-expense-name').value = expense.name;
+  $('edit-expense-amount').value = expense.amount;
+  $('edit-expense-category').value = expense.category;
+  $('edit-expense-source').value = expense.source || '';
+  $('edit-expense-date').value = expense.date;
   editingExpenseId = id;
   openModal('edit-modal');
 }
 
-document.getElementById('confirm-edit').addEventListener('click', async () => {
-  const name     = document.getElementById('edit-expense-name').value.trim();
-  const amount   = parseFloat(document.getElementById('edit-expense-amount').value);
-  const category = document.getElementById('edit-expense-category').value;
-  const source   = document.getElementById('edit-expense-source').value;
-  const date     = document.getElementById('edit-expense-date').value;
-
+$('confirm-edit').addEventListener('click', async () => {
+  const name = $('edit-expense-name').value.trim();
+  const amount = parseFloat($('edit-expense-amount').value);
+  const category = $('edit-expense-category').value;
+  const source = $('edit-expense-source').value;
+  const date = $('edit-expense-date').value;
   if (!name || isNaN(amount) || amount <= 0 || !category || !source || !date) {
-    showToast('Completá todos los campos.', 'error');
-    return;
+    showToast('Completá todos los campos.', 'error'); return;
   }
-
-  const btn = document.getElementById('confirm-edit');
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('expenses')
+  await withLoading($('confirm-edit'), async () => {
+    const { error } = await supabaseDb.from('expenses')
       .update({ name, amount, category, source, date })
-      .eq('id', editingExpenseId)
-      .eq('user_id', currentUserId);
-
-    if (error) {
-      showToast('Error al editar: ' + error.message, 'error');
-      return;
-    }
-    const index = expenses.findIndex(e => e.id === editingExpenseId);
-    if (index > -1) {
-      expenses[index] = { ...expenses[index], name, amount, category, source, date };
-    }
+      .eq('id', editingExpenseId).eq('user_id', currentUserId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+    const idx = expenses.findIndex(e => e.id === editingExpenseId);
+    if (idx > -1) expenses[idx] = { ...expenses[idx], name, amount, category, source, date };
     closeModal('edit-modal');
-    updateUI();
-    renderReport();
+    updateUI(); renderReport();
     showToast('Gasto actualizado', 'success');
   });
 });
 
-function openDeleteModal(id) {
-  deletingExpenseId = id;
-  openModal('delete-modal');
-}
+function openDeleteModal(id) { deletingExpenseId = id; openModal('delete-modal'); }
 
-document.getElementById('confirm-delete').addEventListener('click', async () => {
-  const btn = document.getElementById('confirm-delete');
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('expenses')
-      .delete()
-      .eq('id', deletingExpenseId)
-      .eq('user_id', currentUserId);
-
-    if (error) {
-      showToast('Error al eliminar: ' + error.message, 'error');
-      return;
-    }
+$('confirm-delete').addEventListener('click', async () => {
+  await withLoading($('confirm-delete'), async () => {
+    const { error } = await supabaseDb.from('expenses')
+      .delete().eq('id', deletingExpenseId).eq('user_id', currentUserId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
     expenses = expenses.filter(e => e.id !== deletingExpenseId);
     closeModal('delete-modal');
-    updateUI();
-    renderReport();
+    updateUI(); renderReport();
     showToast('Gasto eliminado', 'success');
   });
 });
@@ -733,7 +686,7 @@ categoryFilter.addEventListener('change', updateUI);
 function renderCards() {
   cardsListEl.innerHTML = '';
   if (cards.length === 0) {
-    cardsListEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">Sin tarjetas. Agregá la primera.</div>';
+    cardsListEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">Sin tarjetas.</div>';
     return;
   }
   cards.forEach(card => {
@@ -742,157 +695,134 @@ function renderCards() {
     chip.innerHTML = `
       <span class="card-chip-name">${escapeHtml(card.name)}</span>
       <span class="card-chip-close">cierre día ${CARD_CLOSE_DAY}</span>
-      <button class="card-chip-remove" title="Eliminar tarjeta" data-card-id="${card.id}">×</button>`;
+      <button class="card-chip-remove" data-card-id="${card.id}">×</button>`;
     cardsListEl.appendChild(chip);
   });
 }
 
-cardsListEl.addEventListener('click', (e) => {
+cardsListEl.addEventListener('click', e => {
   const btn = e.target.closest('.card-chip-remove');
   if (!btn) return;
-  openDeleteCardModal(Number(btn.dataset.cardId));
+  deletingCardId = Number(btn.dataset.cardId);
+  openModal('delete-card-modal');
 });
 
 function renderCardSelectors() {
-  const optionsHtml = '<option value="" disabled selected>Tarjeta</option>' +
+  const html = '<option value="" disabled selected>Tarjeta</option>' +
     cards.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-  purchaseCardSelect.innerHTML = optionsHtml;
-  const editCardSelect = document.getElementById('edit-purchase-card');
-  if (editCardSelect) editCardSelect.innerHTML = optionsHtml;
+  purchaseCardSelect.innerHTML = html;
+  const editCardSelect = $('edit-purchase-card');
+  if (editCardSelect) editCardSelect.innerHTML = html;
 }
 
-function checkCardInputs() {
-  addCardBtn.disabled = !newCardNameInput.value.trim();
-}
+function checkCardInputs() { addCardBtn.disabled = !newCardNameInput.value.trim(); }
 newCardNameInput.addEventListener('input', checkCardInputs);
 
 addCardBtn.addEventListener('click', async () => {
   const name = newCardNameInput.value.trim();
   if (!name) return;
-
   await withLoading(addCardBtn, async () => {
-    const { data, error } = await supabaseDb
-      .from('cards')
-      .insert({ name, close_day: CARD_CLOSE_DAY, user_id: currentUserId })
-      .select();
-
-    if (error) {
-      showToast('Error al agregar tarjeta: ' + error.message, 'error');
-      return;
-    }
+    const { data, error } = await supabaseDb.from('cards')
+      .insert({ name, close_day: CARD_CLOSE_DAY, user_id: currentUserId }).select();
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
     cards.push(data[0]);
-    newCardNameInput.value = '';
-    addCardBtn.disabled = true;
-    renderCards();
-    renderCardSelectors();
+    newCardNameInput.value = ''; addCardBtn.disabled = true;
+    renderCards(); renderCardSelectors();
     showToast('Tarjeta agregada', 'success');
   });
 });
 
-function openDeleteCardModal(id) {
-  deletingCardId = id;
-  openModal('delete-card-modal');
-}
-
-document.getElementById('confirm-delete-card').addEventListener('click', async () => {
-  const btn = document.getElementById('confirm-delete-card');
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('cards')
-      .delete()
-      .eq('id', deletingCardId)
-      .eq('user_id', currentUserId);
-
-    if (error) {
-      showToast('Error al eliminar tarjeta: ' + error.message, 'error');
-      return;
-    }
+$('confirm-delete-card').addEventListener('click', async () => {
+  await withLoading($('confirm-delete-card'), async () => {
+    const { error } = await supabaseDb.from('cards')
+      .delete().eq('id', deletingCardId).eq('user_id', currentUserId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
     cards = cards.filter(c => c.id !== deletingCardId);
     purchases.forEach(p => { if (p.card_id === deletingCardId) p.card_id = null; });
     closeModal('delete-card-modal');
-    renderCards();
-    renderCardSelectors();
-    renderInstallments();
+    renderCards(); renderCardSelectors(); renderInstallments();
     showToast('Tarjeta eliminada', 'success');
   });
 });
 
 /* ═══════════════════════════════════════════════════════════
-   INSTALLMENT PURCHASES
+   INSTALLMENT PURCHASES — NUEVA ARQUITECTURA
 ═══════════════════════════════════════════════════════════ */
 function checkPurchaseInputs() {
   const installments = parseInt(purchaseInstallmentsInput.value, 10) || 0;
-  const paid = parseInt(purchasePaidInput.value, 10) || 0;
+  const startFrom = parseInt(purchaseStartFromInput.value, 10) || 1;
   const valid = purchaseNameInput.value.trim() &&
-                purchaseAmountInput.value &&
-                parseFloat(purchaseAmountInput.value) > 0 &&
-                installments > 0 &&
-                paid >= 0 && paid <= installments &&
-                purchaseCardSelect.value &&
-                purchaseDateInput.value &&
-                firstInstallmentDateInput.value;
+    purchaseAmountInput.value && parseFloat(purchaseAmountInput.value) > 0 &&
+    installments > 0 &&
+    startFrom >= 1 && startFrom <= installments + 1 &&
+    purchaseCardSelect.value &&
+    firstInstallmentDateInput.value;
   addPurchaseBtn.disabled = !valid;
 }
-[purchaseNameInput, purchaseAmountInput, purchaseInstallmentsInput, purchasePaidInput, purchaseCardSelect, purchaseDateInput, firstInstallmentDateInput]
+[purchaseNameInput, purchaseAmountInput, purchaseInstallmentsInput,
+ purchaseStartFromInput, purchaseCardSelect, firstInstallmentDateInput]
   .forEach(el => el.addEventListener('input', checkPurchaseInputs));
 
 addPurchaseBtn.addEventListener('click', async () => {
-  const name         = purchaseNameInput.value.trim();
-  const amount       = parseFloat(purchaseAmountInput.value);
+  const name = purchaseNameInput.value.trim();
+  const amount = parseFloat(purchaseAmountInput.value);
   const installments = parseInt(purchaseInstallmentsInput.value, 10);
-  const paidCount    = parseInt(purchasePaidInput.value, 10) || 0;
-  const cardId       = purchaseCardSelect.value ? Number(purchaseCardSelect.value) : null;
-  const purchaseDate = purchaseDateInput.value;
-  const firstDate    = firstInstallmentDateInput.value;
+  const startFrom = parseInt(purchaseStartFromInput.value, 10) || 1;
+  const cardId = purchaseCardSelect.value ? Number(purchaseCardSelect.value) : null;
+  const firstDate = firstInstallmentDateInput.value;
 
-  if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !cardId || !purchaseDate || !firstDate) return;
+  if (!name || isNaN(amount) || amount <= 0 || !installments || !cardId || !firstDate) return;
+
+  const installmentStates = generateInstallmentStates(installments, firstDate, startFrom);
 
   await withLoading(addPurchaseBtn, async () => {
-    const { data, error } = await supabaseDb
-      .from('card_purchases')
+    const { data, error } = await supabaseDb.from('card_purchases')
       .insert({
         name, amount, installments,
-        paidCount: Math.min(paidCount, installments),
+        paidCount: startFrom - 1, // cuotas históricas
+        startFrom,
         card_id: cardId,
-        purchaseDate,
         firstInstallmentDate: firstDate,
+        installmentStates,
         user_id: currentUserId,
-      })
-      .select();
+      }).select();
 
-    if (error) {
-      showToast('Error al agregar compra: ' + error.message, 'error');
-      return;
-    }
-    purchases.unshift(data[0]);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+    const newPurchase = data[0];
+    migrateLegacyPurchase(newPurchase);
+    purchases.unshift(newPurchase);
+
     purchaseNameInput.value = '';
     purchaseAmountInput.value = '';
     purchaseInstallmentsInput.value = '';
-    purchasePaidInput.value = '';
+    purchaseStartFromInput.value = '';
     purchaseCardSelect.value = '';
-    purchaseDateInput.value = '';
     firstInstallmentDateInput.value = '';
     addPurchaseBtn.disabled = true;
+
     renderInstallments();
-    showToast('Compra agregada', 'success');
+    const historicalCount = startFrom - 1;
+    const msg = historicalCount > 0
+      ? `Compra agregada (${historicalCount} cuotas históricas no afectan el saldo)`
+      : 'Compra agregada';
+    showToast(msg, 'success');
   });
 });
 
+/* ─── Render installments ──────────────────────────── */
 function renderInstallments() {
   installmentsListEl.innerHTML = '';
   if (purchases.length === 0) {
-    installmentsListEl.innerHTML = `
-      <div class="installment-empty">
-        <span class="empty-icon">💳</span>
-        Sin compras en cuotas. ¡Agrega la primera!
-      </div>`;
+    installmentsListEl.innerHTML = '<div class="installment-empty"><span class="empty-icon">💳</span>Sin compras en cuotas.</div>';
     cardSummaryEl.innerHTML = '';
     updateBalanceSummary();
     return;
   }
 
-  let grandMonthly = 0;
-  let grandRemaining = 0;
+  let grandCurrent = 0;
+  let grandAdvanced = 0;
+  let grandPending = 0;
   const grouped = {};
   purchases.forEach(p => {
     const key = p.card_id || 'none';
@@ -900,87 +830,120 @@ function renderInstallments() {
     grouped[key].push(p);
   });
 
+  const renderGroup = (cardName, list) => {
+    const header = document.createElement('div');
+    header.className = 'card-group-header';
+    header.innerHTML = `💳 ${escapeHtml(cardName)} <span class="card-group-summary">cierre día ${CARD_CLOSE_DAY}</span>`;
+    installmentsListEl.appendChild(header);
+
+    let groupCurrent = 0, groupAdvanced = 0, groupPending = 0;
+    list.forEach(p => {
+      const stats = renderPurchaseItem(p);
+      groupCurrent += stats.current;
+      groupAdvanced += stats.advanced;
+      groupPending += stats.pending;
+      installmentsListEl.appendChild(stats.el);
+    });
+
+    const summary = document.createElement('div');
+    summary.className = 'card-group-header';
+    summary.style.borderTop = '1px solid var(--border)';
+    summary.style.borderBottom = 'none';
+    summary.style.marginTop = '8px';
+    summary.innerHTML = `<span style="font-weight:400;color:var(--muted);font-size:13px;">
+      ${escapeHtml(cardName)}: mes actual <strong style="color:var(--text)">$${groupCurrent.toFixed(2)}</strong> ·
+      adelantos <strong style="color:var(--accent-dk)">$${groupAdvanced.toFixed(2)}</strong> ·
+      futuras <strong style="color:var(--muted)">$${groupPending.toFixed(2)}</strong>
+    </span>`;
+    installmentsListEl.appendChild(summary);
+
+    grandCurrent += groupCurrent;
+    grandAdvanced += groupAdvanced;
+    grandPending += groupPending;
+  };
+
   cards.forEach(card => {
-    const cardPurchases = grouped[card.id] || [];
-    if (cardPurchases.length === 0) return;
-
-    let cardMonthly = 0, cardRemaining = 0;
-    const header = document.createElement('div');
-    header.className = 'card-group-header';
-    header.innerHTML = `💳 ${escapeHtml(card.name)} <span class="card-group-summary">cierre día ${CARD_CLOSE_DAY}</span>`;
-    installmentsListEl.appendChild(header);
-
-    cardPurchases.forEach(p => {
-      const stats = renderPurchaseItem(p);
-      cardMonthly += stats.monthly;
-      cardRemaining += stats.remaining;
-      installmentsListEl.appendChild(stats.el);
-    });
-
-    const summary = document.createElement('div');
-    summary.className = 'card-group-header';
-    summary.style.borderTop = '1px solid var(--border)';
-    summary.style.borderBottom = 'none';
-    summary.style.marginTop = '8px';
-    summary.innerHTML = `<span style="font-weight:400;color:var(--muted);font-size:13px;">Total ${escapeHtml(card.name)}: cuota mensual $${cardMonthly.toFixed(2)} · saldo $${cardRemaining.toFixed(2)}</span>`;
-    installmentsListEl.appendChild(summary);
-
-    grandMonthly += cardMonthly;
-    grandRemaining += cardRemaining;
+    const list = grouped[card.id] || [];
+    if (list.length > 0) renderGroup(card.name, list);
   });
-
   if (grouped['none'] && grouped['none'].length > 0) {
-    const header = document.createElement('div');
-    header.className = 'card-group-header';
-    header.innerHTML = `💳 Sin tarjeta asignada`;
-    installmentsListEl.appendChild(header);
-    let noneMonthly = 0, noneRemaining = 0;
-    grouped['none'].forEach(p => {
-      const stats = renderPurchaseItem(p);
-      noneMonthly += stats.monthly;
-      noneRemaining += stats.remaining;
-      installmentsListEl.appendChild(stats.el);
-    });
-    const summary = document.createElement('div');
-    summary.className = 'card-group-header';
-    summary.style.borderTop = '1px solid var(--border)';
-    summary.style.borderBottom = 'none';
-    summary.style.marginTop = '8px';
-    summary.innerHTML = `<span style="font-weight:400;color:var(--muted);font-size:13px;">Total sin tarjeta: cuota mensual $${noneMonthly.toFixed(2)} · saldo $${noneRemaining.toFixed(2)}</span>`;
-    installmentsListEl.appendChild(summary);
-    grandMonthly += noneMonthly;
-    grandRemaining += noneRemaining;
+    renderGroup('Sin tarjeta', grouped['none']);
   }
 
-  cardSummaryEl.innerHTML = `Total general: cuota mensual <strong>$${grandMonthly.toFixed(2)}</strong> · saldo <strong>$${grandRemaining.toFixed(2)}</strong>`;
+  cardSummaryEl.innerHTML = `Total: mes actual <strong>$${grandCurrent.toFixed(2)}</strong> · adelantos <strong>$${grandAdvanced.toFixed(2)}</strong> · futuras <strong>$${grandPending.toFixed(2)}</strong>`;
   updateBalanceSummary();
 }
 
 function renderPurchaseItem(p) {
-  const installmentAmount = p.amount / p.installments;
-  const remaining = p.installments - p.paidCount;
-  const monthly = installmentAmount;
-  const remainingTotal = installmentAmount * remaining;
-  const isComplete = p.paidCount >= p.installments;
-  const progressPct = (p.paidCount / p.installments) * 100;
+  if (!p.installmentStates) migrateLegacyPurchase(p);
 
+  const installmentAmount = p.amount / p.installments;
+  const currentMonth = getCurrentMonthKey();
+
+  let currentTotal = 0, advancedTotal = 0, pendingTotal = 0;
   let boxesHtml = '';
-  for (let i = 0; i < p.installments; i++) {
-    const dueDate = addMonths(p.firstInstallmentDate, i);
-    const isPaid = i < p.paidCount;
-    const isCurrent = i === p.paidCount && !isComplete;
+
+  p.installmentStates.forEach(inst => {
+    const dueMonth = getMonthKey(inst.dueDate);
+    const isHistorical = inst.type === 'HISTORICAL';
+    const isLegacyPaid = inst.type === 'LEGACY_PAID';
+    const isAdvanced = inst.type === 'ADVANCED';
+    const isCurrentPaid = inst.type === 'CURRENT_PAID';
+    const isCurrentPending = inst.status === 'PENDING' && dueMonth === currentMonth;
+    const isOverdue = inst.status === 'PENDING' && dueMonth < currentMonth;
+    const isFuturePending = inst.status === 'PENDING' && dueMonth > currentMonth;
+
+    // Totales
+    if (isCurrentPending || isOverdue) currentTotal += installmentAmount;
+    else if (isAdvanced) advancedTotal += installmentAmount;
+    else if (isFuturePending) pendingTotal += installmentAmount;
+
+    // Clase visual de la box
+    let boxClass = 'box';
+    let boxTitle = `Cuota ${inst.idx} — ${monthLabel(inst.dueDate)}`;
+    if (isHistorical) {
+      boxClass += ' paid historical';
+      boxTitle += ' (histórica - no afecta saldo)';
+    } else if (isLegacyPaid) {
+      boxClass += ' paid legacy';
+      boxTitle += ' (pagada anteriormente)';
+    } else if (isCurrentPaid) {
+      boxClass += ' paid current-paid';
+      boxTitle += ' (pagada este mes)';
+    } else if (isAdvanced) {
+      boxClass += ' paid advanced';
+      boxTitle += ' (adelanto - ya debitada)';
+    } else if (isCurrentPending) {
+      boxClass += ' current';
+      boxTitle += ' (cuota del mes - descuenta del saldo)';
+    } else if (isOverdue) {
+      boxClass += ' overdue';
+      boxTitle += ' (vencida - descuenta del saldo)';
+    } else if (isFuturePending) {
+      boxClass += ' future';
+      boxTitle += ' (futura - no descuenta hasta su mes)';
+    }
+
+    // Las históricas no son clickeables
+    const clickable = !isHistorical && !isLegacyPaid;
+    const clickAttr = clickable
+      ? `data-action="toggle" data-pid="${p.id}" data-idx="${inst.idx}"`
+      : '';
+
     boxesHtml += `
       <div class="box-wrap">
-        <div class="box ${isPaid ? 'paid' : ''} ${isCurrent ? 'current' : ''}"
-             data-action="toggle" data-pid="${p.id}" data-idx="${i}"
-             title="Cuota ${i + 1} — ${monthLabel(dueDate)}">
-          ${i + 1}
+        <div class="${boxClass}" ${clickAttr} title="${boxTitle}">
+          ${inst.idx}
         </div>
-        <span class="box-label">${monthLabel(dueDate).slice(0, 3)}</span>
+        <span class="box-label">${monthLabel(inst.dueDate).slice(0, 3)}</span>
       </div>`;
-  }
+  });
 
+  const paidCount = p.installmentStates.filter(i => i.status === 'PAID').length;
+  const progressPct = (paidCount / p.installments) * 100;
   const cardName = p.card_id ? (cards.find(c => c.id === p.card_id)?.name || '—') : '—';
+  const isComplete = paidCount >= p.installments;
+
   const item = document.createElement('div');
   item.className = 'installment-item' + (isComplete ? ' is-complete' : '');
   item.innerHTML = `
@@ -991,29 +954,33 @@ function renderPurchaseItem(p) {
           <span>Total: <strong>$${p.amount.toFixed(2)}</strong></span>
           <span>Cuota: <strong>$${installmentAmount.toFixed(2)}</strong></span>
           <span>Tarjeta: <strong>${escapeHtml(cardName)}</strong></span>
-          <span>Comprado: <strong>${formatDate(p.purchaseDate)}</strong></span>
           <span>1ª cuota: <strong>${formatDate(p.firstInstallmentDate)}</strong></span>
         </div>
       </div>
       <div class="installment-actions">
-        <button class="icon-btn edit" title="Editar" data-action="edit-purchase" data-id="${p.id}">✏️</button>
-        <button class="icon-btn delete" title="Eliminar" data-action="delete-purchase" data-id="${p.id}">🗑️</button>
+        <button class="icon-btn edit" data-action="edit-purchase" data-id="${p.id}">✏️</button>
+        <button class="icon-btn delete" data-action="delete-purchase" data-id="${p.id}">🗑️</button>
       </div>
     </div>
     <div class="installment-progress">
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: ${progressPct}%"></div>
-      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: ${progressPct}%"></div></div>
       <div class="progress-label">
-        <span>Cuota ${p.paidCount} de ${p.installments}</span>
-        <span class="paid">${isComplete ? 'Completo' : `Faltan ${remaining}`}</span>
+        <span>${paidCount} de ${p.installments} cuotas</span>
+        <span class="paid">${isComplete ? 'Completo' : `Faltan ${p.installments - paidCount}`}</span>
       </div>
     </div>
+    <div class="installment-legend-row">
+      <span class="legend-chip current">● Mes actual</span>
+      <span class="legend-chip advanced">● Adelanto</span>
+      <span class="legend-chip future">● Futura</span>
+      <span class="legend-chip historical">● Histórica</span>
+    </div>
     <div class="installment-boxes">${boxesHtml}</div>`;
-  return { el: item, monthly, remaining: remainingTotal };
+
+  return { el: item, current: currentTotal, advanced: advancedTotal, pending: pendingTotal };
 }
 
-installmentsListEl.addEventListener('click', (e) => {
+installmentsListEl.addEventListener('click', e => {
   const box = e.target.closest('.box[data-action="toggle"]');
   if (box) {
     toggleInstallmentPaid(Number(box.dataset.pid), Number(box.dataset.idx));
@@ -1026,101 +993,137 @@ installmentsListEl.addEventListener('click', (e) => {
   if (btn.dataset.action === 'delete-purchase') openDeletePurchaseModal(id);
 });
 
-/* ─── Toggle cuota pagada — AHORA RESTA del saldo ─── */
-async function toggleInstallmentPaid(purchaseId, boxIndex) {
+/**
+ * Toggle de cuota pagada.
+ * - Si la cuota es del mes actual (CURRENT) → se marca como CURRENT_PAID
+ * - Si la cuota es futura (FUTURE) → se marca como ADVANCED (descuenta AHORA)
+ * - Si la cuota ya está PAID → se desmarca y vuelve a PENDING
+ * - HISTORICAL y LEGACY_PAID no son toggleables
+ */
+async function toggleInstallmentPaid(purchaseId, boxIdx) {
   const p = purchases.find(x => x.id === purchaseId);
-  if (!p) return;
+  if (!p || !p.installmentStates) return;
 
-  let newPaidCount = p.paidCount;
-  if (boxIndex < p.paidCount) {
-    if (boxIndex === p.paidCount - 1) newPaidCount = p.paidCount - 1;
-    else return;
-  } else if (boxIndex === p.paidCount) {
-    newPaidCount = p.paidCount + 1;
-  } else {
-    return;
-  }
+  const inst = p.installmentStates.find(i => i.idx === boxIdx);
+  if (!inst) return;
+
+  // No permitir toggle en históricas ni legacy
+  if (inst.type === 'HISTORICAL' || inst.type === 'LEGACY_PAID') return;
 
   const previousBalance = computeBalance();
+  const currentMonth = getCurrentMonthKey();
+  const dueMonth = getMonthKey(inst.dueDate);
 
-  const { error } = await supabaseDb
-    .from('card_purchases')
-    .update({ paidCount: newPaidCount })
-    .eq('id', purchaseId)
-    .eq('user_id', currentUserId);
+  let newStatus, newType, actionMsg;
+
+  if (inst.status === 'PENDING') {
+    // Marcar como pagada
+    newStatus = 'PAID';
+    if (dueMonth === currentMonth) {
+      newType = 'CURRENT_PAID';
+      actionMsg = `Cuota ${boxIdx} pagada (mes actual)`;
+    } else if (dueMonth > currentMonth) {
+      newType = 'ADVANCED';
+      actionMsg = `Cuota ${boxIdx} pagada por adelantado (se debita ahora)`;
+    } else {
+      // OVERDUE → marcar como pagada
+      newType = 'CURRENT_PAID';
+      actionMsg = `Cuota ${boxIdx} pagada (vencida)`;
+    }
+  } else {
+    // Desmarcar (volver a PENDING)
+    newStatus = 'PENDING';
+    if (dueMonth === currentMonth) newType = 'CURRENT';
+    else if (dueMonth > currentMonth) newType = 'FUTURE';
+    else newType = 'OVERDUE';
+    actionMsg = `Cuota ${boxIdx} desmarcada`;
+  }
+
+  inst.status = newStatus;
+  inst.type = newType;
+
+  // Recalcular paidCount
+  const newPaidCount = p.installmentStates.filter(i => i.status === 'PAID').length;
+
+  const { error } = await supabaseDb.from('card_purchases')
+    .update({ paidCount: newPaidCount, installmentStates: p.installmentStates })
+    .eq('id', purchaseId).eq('user_id', currentUserId);
 
   if (error) {
-    showToast('Error al actualizar cuota', 'error');
+    showToast('Error: ' + error.message, 'error');
+    // Revertir en memoria
+    if (newStatus === 'PAID') { inst.status = 'PENDING'; inst.type = dueMonth === currentMonth ? 'CURRENT' : dueMonth > currentMonth ? 'FUTURE' : 'OVERDUE'; }
+    else { inst.status = 'PAID'; inst.type = dueMonth === currentMonth ? 'CURRENT_PAID' : 'ADVANCED'; }
     return;
   }
+
   p.paidCount = newPaidCount;
   renderInstallments();
 
-  // ✅ CORRECCIÓN: al pagar una cuota, el saldo BAJA
-  // porque computeBalance() ahora resta las cuotas pagadas
   const newBalance = computeBalance();
   animateBalance(previousBalance, newBalance);
-  updateBalanceSummary();
 
-  const action = newPaidCount > (p.paidCount - 1) ? 'pagada' : 'desmarcada';
-  const delta = newPaidCount > (p.paidCount - 1)
-    ? `(-$${(p.amount / p.installments).toFixed(2)})`
-    : `(+${(p.amount / p.installments).toFixed(2)})`;
-  showToast(`Cuota ${action} ${delta}`, 'success', 2500);
+  const installmentAmount = p.amount / p.installments;
+  const delta = newStatus === 'PAID' ? `-$${installmentAmount.toFixed(2)}` : `+$${installmentAmount.toFixed(2)}`;
+  showToast(`${actionMsg} (${delta})`, 'success', 2800);
 }
 
 function openEditPurchaseModal(id) {
   const p = purchases.find(x => x.id === id);
   if (!p) return;
-  document.getElementById('edit-purchase-name').value         = p.name;
-  document.getElementById('edit-purchase-amount').value       = p.amount;
-  document.getElementById('edit-purchase-installments').value = p.installments;
-  document.getElementById('edit-purchase-paid').value         = p.paidCount;
-  document.getElementById('edit-purchase-date').value         = p.purchaseDate;
-  document.getElementById('edit-first-installment-date').value = p.firstInstallmentDate;
-  const editCardSelect = document.getElementById('edit-purchase-card');
-  editCardSelect.value = p.card_id || '';
+  $('edit-purchase-name').value = p.name;
+  $('edit-purchase-amount').value = p.amount;
+  $('edit-purchase-installments').value = p.installments;
+  $('edit-purchase-card').value = p.card_id || '';
+  $('edit-first-installment-date').value = p.firstInstallmentDate;
   editingPurchaseId = id;
   openModal('edit-purchase-modal');
 }
 
-document.getElementById('confirm-edit-purchase').addEventListener('click', async () => {
-  const name         = document.getElementById('edit-purchase-name').value.trim();
-  const amount       = parseFloat(document.getElementById('edit-purchase-amount').value);
-  const installments = parseInt(document.getElementById('edit-purchase-installments').value, 10);
-  const paidCount    = parseInt(document.getElementById('edit-purchase-paid').value, 10) || 0;
-  const cardId       = document.getElementById('edit-purchase-card').value ? Number(document.getElementById('edit-purchase-card').value) : null;
-  const purchaseDate = document.getElementById('edit-purchase-date').value;
-  const firstDate    = document.getElementById('edit-first-installment-date').value;
+$('confirm-edit-purchase').addEventListener('click', async () => {
+  const name = $('edit-purchase-name').value.trim();
+  const amount = parseFloat($('edit-purchase-amount').value);
+  const installments = parseInt($('edit-purchase-installments').value, 10);
+  const cardId = $('edit-purchase-card').value ? Number($('edit-purchase-card').value) : null;
+  const firstDate = $('edit-first-installment-date').value;
 
-  if (!name || isNaN(amount) || amount <= 0 || !installments || installments <= 0 || !purchaseDate || !firstDate) {
-    showToast('Completá todos los campos.', 'error');
-    return;
+  if (!name || isNaN(amount) || amount <= 0 || !installments || !firstDate) {
+    showToast('Completá los campos.', 'error'); return;
   }
 
-  const clampedPaid = Math.min(paidCount, installments);
-  const btn = document.getElementById('confirm-edit-purchase');
+  await withLoading($('confirm-edit-purchase'), async () => {
+    const p = purchases.find(x => x.id === editingPurchaseId);
+    // Regenerar estados si cambió el total de cuotas o la fecha
+    let newStates = p.installmentStates;
+    if (installments !== p.installments || firstDate !== p.firstInstallmentDate) {
+      // Conservar estados de las cuotas existentes (hasta el mínimo)
+      const preservedStatuses = {};
+      p.installmentStates.forEach(s => { preservedStatuses[s.idx] = { status: s.status, type: s.type }; });
+      newStates = generateInstallmentStates(installments, firstDate, 1);
+      newStates.forEach(s => {
+        if (preservedStatuses[s.idx]) {
+          s.status = preservedStatuses[s.idx].status;
+          s.type = preservedStatuses[s.idx].type;
+        }
+      });
+    }
 
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('card_purchases')
+    const { error } = await supabaseDb.from('card_purchases')
       .update({
         name, amount, installments,
-        paidCount: clampedPaid,
+        paidCount: newStates.filter(s => s.status === 'PAID').length,
         card_id: cardId,
-        purchaseDate,
         firstInstallmentDate: firstDate,
+        installmentStates: newStates,
       })
-      .eq('id', editingPurchaseId)
-      .eq('user_id', currentUserId);
+      .eq('id', editingPurchaseId).eq('user_id', currentUserId);
 
-    if (error) {
-      showToast('Error al editar compra: ' + error.message, 'error');
-      return;
-    }
-    const index = purchases.findIndex(x => x.id === editingPurchaseId);
-    if (index > -1) {
-      purchases[index] = { ...purchases[index], name, amount, installments, paidCount: clampedPaid, card_id: cardId, purchaseDate, firstInstallmentDate };
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
+
+    const idx = purchases.findIndex(x => x.id === editingPurchaseId);
+    if (idx > -1) {
+      purchases[idx] = { ...purchases[idx], name, amount, installments, card_id: cardId, firstInstallmentDate: firstDate, installmentStates: newStates };
+      migrateLegacyPurchase(purchases[idx]);
     }
     closeModal('edit-purchase-modal');
     renderInstallments();
@@ -1128,24 +1131,13 @@ document.getElementById('confirm-edit-purchase').addEventListener('click', async
   });
 });
 
-function openDeletePurchaseModal(id) {
-  deletingPurchaseId = id;
-  openModal('delete-purchase-modal');
-}
+function openDeletePurchaseModal(id) { deletingPurchaseId = id; openModal('delete-purchase-modal'); }
 
-document.getElementById('confirm-delete-purchase').addEventListener('click', async () => {
-  const btn = document.getElementById('confirm-delete-purchase');
-  await withLoading(btn, async () => {
-    const { error } = await supabaseDb
-      .from('card_purchases')
-      .delete()
-      .eq('id', deletingPurchaseId)
-      .eq('user_id', currentUserId);
-
-    if (error) {
-      showToast('Error al eliminar compra: ' + error.message, 'error');
-      return;
-    }
+$('confirm-delete-purchase').addEventListener('click', async () => {
+  await withLoading($('confirm-delete-purchase'), async () => {
+    const { error } = await supabaseDb.from('card_purchases')
+      .delete().eq('id', deletingPurchaseId).eq('user_id', currentUserId);
+    if (error) { showToast('Error: ' + error.message, 'error'); return; }
     purchases = purchases.filter(x => x.id !== deletingPurchaseId);
     closeModal('delete-purchase-modal');
     renderInstallments();
@@ -1160,65 +1152,50 @@ const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','A
 const CHART_COLORS = ['#16A34A','#0EA5E9','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16'];
 let reportChart = null;
 let reportMonth = new Date().getMonth();
-let reportYear  = new Date().getFullYear();
+let reportYear = new Date().getFullYear();
 
-const reportMonthSelect = document.getElementById('report-month');
-const reportYearSelect  = document.getElementById('report-year');
-const reportPrevBtn     = document.getElementById('report-prev');
-const reportNextBtn     = document.getElementById('report-next');
-const reportTableEl     = document.getElementById('report-table');
-const reportTotalEl     = document.getElementById('report-total');
-const reportCountEl     = document.getElementById('report-count');
-const reportAvgEl       = document.getElementById('report-avg');
-const reportsLegendEl   = document.getElementById('reports-legend');
+const reportMonthSelect = $('report-month');
+const reportYearSelect = $('report-year');
+const reportPrevBtn = $('report-prev');
+const reportNextBtn = $('report-next');
+const reportTableEl = $('report-table');
+const reportTotalEl = $('report-total');
+const reportCountEl = $('report-count');
+const reportAvgEl = $('report-avg');
+const reportsLegendEl = $('reports-legend');
 
 function initReports() {
   reportMonthSelect.innerHTML = MONTH_NAMES.map((m, i) => `<option value="${i}">${m}</option>`).join('');
   syncReportSelectors();
-
-  reportMonthSelect.addEventListener('change', () => {
-    reportMonth = parseInt(reportMonthSelect.value, 10);
-    renderReport();
-  });
-  reportYearSelect.addEventListener('change', () => {
-    reportYear = parseInt(reportYearSelect.value, 10);
-    renderReport();
-  });
+  reportMonthSelect.addEventListener('change', () => { reportMonth = parseInt(reportMonthSelect.value, 10); renderReport(); });
+  reportYearSelect.addEventListener('change', () => { reportYear = parseInt(reportYearSelect.value, 10); renderReport(); });
   reportPrevBtn.addEventListener('click', () => {
     reportMonth--;
     if (reportMonth < 0) { reportMonth = 11; reportYear--; }
-    syncReportSelectors();
-    renderReport();
+    syncReportSelectors(); renderReport();
   });
   reportNextBtn.addEventListener('click', () => {
     reportMonth++;
     if (reportMonth > 11) { reportMonth = 0; reportYear++; }
-    syncReportSelectors();
-    renderReport();
+    syncReportSelectors(); renderReport();
   });
   renderReport();
 }
 
 function syncReportSelectors() {
   reportMonthSelect.value = reportMonth;
-
   const now = new Date();
-  const minYear = expenses.length
-    ? Math.min(...expenses.map(e => parseInt(e.date.slice(0, 4), 10)))
-    : now.getFullYear();
+  const minYear = expenses.length ? Math.min(...expenses.map(e => parseInt(e.date.slice(0, 4), 10))) : now.getFullYear();
   const maxYear = Math.max(now.getFullYear(), minYear, reportYear);
-
-  let yearsHtml = '';
-  for (let y = maxYear; y >= minYear; y--) {
-    yearsHtml += `<option value="${y}">${y}</option>`;
-  }
-  reportYearSelect.innerHTML = yearsHtml;
+  let html = '';
+  for (let y = maxYear; y >= minYear; y--) html += `<option value="${y}">${y}</option>`;
+  reportYearSelect.innerHTML = html;
   reportYearSelect.value = reportYear;
 }
 
 function renderReport() {
   const monthStr = String(reportMonth + 1).padStart(2, '0');
-  const yearStr  = String(reportYear);
+  const yearStr = String(reportYear);
   const filtered = expenses.filter(e => {
     if (!e.date) return false;
     const [y, m] = e.date.split('-');
@@ -1228,75 +1205,44 @@ function renderReport() {
   const total = filtered.reduce((s, e) => s + e.amount, 0);
   const count = filtered.length;
   const avg = count ? total / count : 0;
-
   reportTotalEl.textContent = total.toFixed(2);
   reportCountEl.textContent = String(count);
-  reportAvgEl.textContent   = avg.toFixed(2);
+  reportAvgEl.textContent = avg.toFixed(2);
 
   const byCategory = {};
-  filtered.forEach(e => {
-    const cat = e.category || 'Otro';
-    byCategory[cat] = (byCategory[cat] || 0) + e.amount;
-  });
-
-  const cats   = Object.keys(byCategory).sort((a, b) => byCategory[b] - byCategory[a]);
+  filtered.forEach(e => { byCategory[e.category || 'Otro'] = (byCategory[e.category || 'Otro'] || 0) + e.amount; });
+  const cats = Object.keys(byCategory).sort((a, b) => byCategory[b] - byCategory[a]);
   const values = cats.map(c => byCategory[c]);
   const colors = cats.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
 
   if (reportChart) { reportChart.destroy(); reportChart = null; }
+  const ctx = $('reports-chart');
 
-  const ctx = document.getElementById('reports-chart');
   if (count === 0) {
-    const context = ctx.getContext('2d');
-    context.clearRect(0, 0, ctx.width, ctx.height);
-    context.fillStyle = '#64748B';
-    context.font = '14px Inter, sans-serif';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText('Sin gastos en este mes', ctx.width / 2, ctx.height / 2);
-    reportsLegendEl.innerHTML = '<div class="legend-item" style="justify-content:center;color:var(--muted);">Sin gastos en este mes.</div>';
+    const c = ctx.getContext('2d');
+    c.clearRect(0, 0, ctx.width, ctx.height);
+    c.fillStyle = '#64748B'; c.font = '14px Inter'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('Sin gastos en este mes', ctx.width / 2, ctx.height / 2);
+    reportsLegendEl.innerHTML = '<div class="legend-item" style="justify-content:center;color:var(--muted);">Sin gastos.</div>';
   } else {
     reportChart = new Chart(ctx, {
       type: 'doughnut',
-      data: {
-        labels: cats.map(c => CATEGORY_LABELS[c] || c),
-        datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }],
-      },
+      data: { labels: cats.map(c => CATEGORY_LABELS[c] || c), datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }] },
       options: {
-        responsive: true,
-        maintainAspectRatio: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (tipCtx) => {
-                const v = tipCtx.parsed;
-                const pct = total ? ((v / total) * 100).toFixed(1) : 0;
-                return ` ${tipCtx.label}: $${v.toFixed(2)} (${pct}%)`;
-              },
-            },
-          },
-        },
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (tip) => { const v = tip.parsed; const pct = total ? ((v / total) * 100).toFixed(1) : 0; return ` ${tip.label}: $${v.toFixed(2)} (${pct}%)`; } } } },
         cutout: '62%',
       },
     });
-
     reportsLegendEl.innerHTML = cats.map((c, i) => {
       const pct = total ? ((byCategory[c] / total) * 100).toFixed(1) : 0;
-      return `<div class="legend-item">
-        <span class="legend-dot" style="background:${colors[i]};"></span>
-        <span class="legend-label">${CATEGORY_LABELS[c] || c}</span>
-        <span class="legend-value">${byCategory[c].toFixed(2)}<span class="legend-pct">${pct}%</span></span>
-      </div>`;
+      return `<div class="legend-item"><span class="legend-dot" style="background:${colors[i]};"></span><span class="legend-label">${CATEGORY_LABELS[c] || c}</span><span class="legend-value">${byCategory[c].toFixed(2)}<span class="legend-pct">${pct}%</span></span></div>`;
     }).join('');
   }
 
   reportTableEl.innerHTML = '';
   if (filtered.length === 0) {
-    const row = document.createElement('tr');
-    row.className = 'empty-row';
-    row.innerHTML = `<td colspan="5"><span class="empty-icon">📭</span> Sin gastos en ${MONTH_NAMES[reportMonth]} ${reportYear}.</td>`;
-    reportTableEl.appendChild(row);
+    reportTableEl.innerHTML = '<tr class="empty-row"><td colspan="5"><span class="empty-icon">📭</span>Sin gastos.</td></tr>';
   } else {
     filtered.forEach(e => {
       const row = document.createElement('tr');
@@ -1318,47 +1264,37 @@ function renderReport() {
 ═══════════════════════════════════════════════════════════ */
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => {
-      t.classList.remove('active');
-      t.setAttribute('aria-selected', 'false');
-    });
+    document.querySelectorAll('.tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     tab.setAttribute('aria-selected', 'true');
-    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-
-    if (tab.dataset.tab === 'reports' && reportChart) {
-      setTimeout(() => reportChart.resize(), 50);
-    }
+    $('panel-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'reports' && reportChart) setTimeout(() => reportChart.resize(), 50);
   });
 });
 
 function openModal(id) {
-  const el = document.getElementById(id);
+  const el = $(id);
   el.classList.add('is-open');
   el.addEventListener('click', backdropClose);
   document.body.style.overflow = 'hidden';
 }
 function closeModal(id) {
-  const el = document.getElementById(id);
+  const el = $(id);
   el.classList.remove('is-open');
   el.removeEventListener('click', backdropClose);
-  if (!document.querySelector('.modal.is-open')) {
-    document.body.style.overflow = '';
-  }
+  if (!document.querySelector('.modal.is-open')) document.body.style.overflow = '';
 }
-function backdropClose(e) {
-  if (e.target === e.currentTarget) closeModal(e.currentTarget.id);
-}
+function backdropClose(e) { if (e.target === e.currentTarget) closeModal(e.currentTarget.id); }
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', e => {
   const closeBtn = e.target.closest('[data-close]');
   if (closeBtn) closeModal(closeBtn.dataset.close);
 });
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    ['edit-modal', 'delete-modal', 'edit-purchase-modal', 'delete-purchase-modal', 'delete-card-modal', 'edit-income-modal', 'delete-income-modal'].forEach(closeModal);
+    ['edit-modal','delete-modal','edit-purchase-modal','delete-purchase-modal','delete-card-modal','edit-income-modal','delete-income-modal'].forEach(closeModal);
   }
 });
 
@@ -1370,22 +1306,14 @@ function formatDate(dateStr) {
   const [y, m, d] = dateStr.split('-');
   return `${d}/${m}/${y}`;
 }
-
 function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-
 function addMonths(dateStr, n) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setMonth(d.getMonth() + n);
   return d.toISOString().slice(0, 10);
 }
-
 function monthLabel(dateStr) {
   if (!dateStr) return '—';
   const d = new Date(dateStr + 'T00:00:00');

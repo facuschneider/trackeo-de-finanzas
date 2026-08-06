@@ -26,7 +26,7 @@
 </header>
 
 <main>
-  <!-- ═══ INCOMES SECTION (DINÁMICA) ═══ -->
+  <!-- ═══ INCOMES SECTION ═══ -->
   <section class="card incomes-card">
     <h2 class="section-label">Ingresos fijos</h2>
     <p class="section-subtitle">Agregá todos los sueldos o ingresos recurrentes de tu familia.</p>
@@ -39,7 +39,7 @@
       <button id="add-income" class="btn-primary" disabled>Agregar</button>
     </div>
 
-    <!-- ═══ EXTRA MONEY MODULE ═══ -->
+    <!-- Extra money -->
     <div class="extra-money-section">
       <div class="extra-money-header">
         <h3 class="section-label">💰 Agregar dinero extra</h3>
@@ -54,7 +54,7 @@
       </div>
     </div>
 
-    <!-- ═══ NUEVA: MOVIMIENTOS DE INGRESOS ═══ -->
+    <!-- Income movements -->
     <div class="income-movements-section">
       <div class="table-header">
         <h2 class="section-label">Movimientos de ingresos</h2>
@@ -86,7 +86,7 @@
     <div class="incomes-summary" aria-live="polite">
       <span>Ingresos totales: <strong>$<span id="total-incomes">0.00</span></strong></span>
       <span>Gastos del mes: <strong>$<span id="total-expenses-paid">0.00</span></strong></span>
-      <span>Cuotas pagadas: <strong>$<span id="total-paid-installments">0.00</span></strong></span>
+      <span>Cuotas a pagar: <strong>$<span id="total-current-deductions">0.00</span></strong></span>
     </div>
   </section>
 
@@ -113,9 +113,7 @@
           <option value="Ferretería">Ferretería</option>
           <option value="Otro">Otro</option>
         </select>
-        <select id="expense-source">
-          <option value="" disabled selected>Origen</option>
-        </select>
+        <select id="expense-source"><option value="" disabled selected>Origen</option></select>
         <input type="date" id="expense-date">
         <button id="add-expense" disabled>Agregar</button>
       </div>
@@ -172,14 +170,17 @@
       <div class="form-grid form-grid-card">
         <input type="text" id="purchase-name" placeholder="Producto (Ej: Aire acondicionado)" autocomplete="off">
         <input type="number" id="purchase-amount" placeholder="Monto total ($)" min="0" step="0.01">
-        <input type="number" id="purchase-installments" placeholder="Cuotas" min="1" max="60">
-        <input type="number" id="purchase-paid" placeholder="Ya pagas" min="0" max="60" title="Cuotas ya pagas">
+        <input type="number" id="purchase-installments" placeholder="Cuotas totales" min="1" max="60">
+        <input type="number" id="purchase-start-from" placeholder="Voy por la cuota N°" min="1" max="60" title="Desde qué cuota empezás a registrar (ej: 7 si ya pagaste 6)">
         <select id="purchase-card"><option value="" disabled selected>Tarjeta</option></select>
-        <input type="date" id="purchase-date" title="Mes de compra">
-        <input type="date" id="first-installment-date" title="Fecha primera cuota">
+        <input type="date" id="first-installment-date" title="Fecha de vencimiento de la cuota N°1 original">
         <button id="add-purchase" disabled>Agregar</button>
       </div>
-      <p class="form-hint">Comprado en <strong>mes de compra</strong> · Primera cuota vence el <strong>fecha primera cuota</strong></p>
+      <p class="form-hint">
+        <strong>Voy por la cuota N°</strong>: si ya pagaste cuotas anteriores, indicá desde cuál registrás.
+        Las cuotas previas se marcarán como <em>históricas</em> y <strong>no afectarán tu saldo actual</strong>.
+        La primera cuota vencerá el <strong>fecha de la cuota 1</strong>.
+      </p>
     </section>
 
     <section class="card table-card">
@@ -243,12 +244,12 @@
   </div>
 </main>
 
-<!-- Edit modal -->
+<!-- Modals (edit/delete expense, purchase, card, income) -->
 <div id="edit-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
   <div class="modal-content">
     <h2 id="edit-title">Editar gasto</h2>
-    <input type="text" id="edit-expense-name" placeholder="Descripción del gasto">
-    <input type="number" id="edit-expense-amount" placeholder="Monto ($)" min="0" step="0.01">
+    <input type="text" id="edit-expense-name" placeholder="Descripción">
+    <input type="number" id="edit-expense-amount" placeholder="Monto" min="0" step="0.01">
     <select id="edit-expense-category">
       <option value="" disabled selected>Categoría</option>
       <option value="Alimentación">Alimentación</option>
@@ -264,9 +265,7 @@
       <option value="Suscripciones">Suscripciones</option>
       <option value="Otro">Otro</option>
     </select>
-    <select id="edit-expense-source">
-      <option value="" disabled selected>Origen</option>
-    </select>
+    <select id="edit-expense-source"><option value="" disabled selected>Origen</option></select>
     <input type="date" id="edit-expense-date">
     <div class="modal-actions">
       <button class="btn-secondary" data-close="edit-modal">Cancelar</button>
@@ -275,11 +274,10 @@
   </div>
 </div>
 
-<!-- Delete modal -->
-<div id="delete-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+<div id="delete-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-content modal-content--compact">
     <div class="delete-icon">⚠</div>
-    <h2 id="delete-title">¿Eliminar gasto?</h2>
+    <h2>¿Eliminar gasto?</h2>
     <p>Esta acción no se puede deshacer.</p>
     <div class="modal-actions">
       <button class="btn-secondary" data-close="delete-modal">Cancelar</button>
@@ -288,17 +286,14 @@
   </div>
 </div>
 
-<!-- Edit purchase modal -->
-<div id="edit-purchase-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-purchase-title">
+<div id="edit-purchase-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-content">
-    <h2 id="edit-purchase-title">Editar compra</h2>
+    <h2>Editar compra</h2>
     <input type="text" id="edit-purchase-name" placeholder="Producto">
-    <input type="number" id="edit-purchase-amount" placeholder="Monto total ($)" min="0" step="0.01">
+    <input type="number" id="edit-purchase-amount" placeholder="Monto total" min="0" step="0.01">
     <input type="number" id="edit-purchase-installments" placeholder="Cuotas" min="1" max="60">
-    <input type="number" id="edit-purchase-paid" placeholder="Ya pagas" min="0" max="60" title="Cuotas ya pagas">
     <select id="edit-purchase-card"><option value="" disabled selected>Tarjeta</option></select>
-    <input type="date" id="edit-purchase-date" title="Mes de compra">
-    <input type="date" id="edit-first-installment-date" title="Fecha primera cuota">
+    <input type="date" id="edit-first-installment-date" title="Fecha cuota 1">
     <div class="modal-actions">
       <button class="btn-secondary" data-close="edit-purchase-modal">Cancelar</button>
       <button class="btn-primary" id="confirm-edit-purchase">Guardar cambios</button>
@@ -306,11 +301,10 @@
   </div>
 </div>
 
-<!-- Delete purchase modal -->
-<div id="delete-purchase-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-purchase-title">
+<div id="delete-purchase-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-content modal-content--compact">
     <div class="delete-icon">⚠</div>
-    <h2 id="delete-purchase-title">¿Eliminar compra?</h2>
+    <h2>¿Eliminar compra?</h2>
     <p>Esta acción no se puede deshacer.</p>
     <div class="modal-actions">
       <button class="btn-secondary" data-close="delete-purchase-modal">Cancelar</button>
@@ -319,11 +313,10 @@
   </div>
 </div>
 
-<!-- Delete card modal -->
-<div id="delete-card-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-card-title">
+<div id="delete-card-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-content modal-content--compact">
     <div class="delete-icon">⚠</div>
-    <h2 id="delete-card-title">¿Eliminar tarjeta?</h2>
+    <h2>¿Eliminar tarjeta?</h2>
     <p>Las compras asociadas quedarán sin tarjeta asignada.</p>
     <div class="modal-actions">
       <button class="btn-secondary" data-close="delete-card-modal">Cancelar</button>
@@ -332,10 +325,9 @@
   </div>
 </div>
 
-<!-- Edit income modal -->
-<div id="edit-income-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-income-title">
+<div id="edit-income-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-content modal-content--compact">
-    <h2 id="edit-income-title">Editar ingreso</h2>
+    <h2>Editar ingreso</h2>
     <input type="text" id="edit-income-name" placeholder="Nombre">
     <input type="number" id="edit-income-amount" placeholder="Monto" min="0" step="0.01">
     <div class="modal-actions">
@@ -345,11 +337,10 @@
   </div>
 </div>
 
-<!-- Delete income modal -->
-<div id="delete-income-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-income-title">
+<div id="delete-income-modal" class="modal" role="dialog" aria-modal="true">
   <div class="modal-content modal-content--compact">
     <div class="delete-icon">⚠</div>
-    <h2 id="delete-income-title">¿Eliminar ingreso?</h2>
+    <h2>¿Eliminar ingreso?</h2>
     <p>Esta acción no se puede deshacer.</p>
     <div class="modal-actions">
       <button class="btn-secondary" data-close="delete-income-modal">Cancelar</button>
@@ -358,8 +349,7 @@
   </div>
 </div>
 
-<!-- Toast container -->
-<div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
