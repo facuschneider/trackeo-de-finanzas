@@ -240,38 +240,51 @@ function computeCurrentMonthDeductions() {
   let total = 0;
 
   purchases.forEach(p => {
-    if (!p.installmentStates) return;
-    const installmentAmount = p.amount / p.installments;
+    if (!p.installmentStates || !Array.isArray(p.installmentStates)) return;
+    const installmentAmount = Number(p.amount) / Number(p.installments);
+    if (isNaN(installmentAmount) || installmentAmount <= 0) return;
 
     p.installmentStates.forEach(inst => {
-      // PAID con tipo LEGACY_PAID o HISTORICAL: no descuenta
-      if (inst.status === 'PAID' && (inst.type === 'HISTORICAL' || inst.type === 'LEGACY_PAID' || inst.type === 'CURRENT_PAID')) {
+      const dueMonth = getMonthKey(inst.dueDate);
+
+      // ─── CASOS QUE NO DESCUENTAN ───────────────────────────
+      // Cuotas históricas: pagadas ANTES de registrar la compra
+      if (inst.type === 'HISTORICAL') return;
+      // Migración legacy: no afectan el saldo actual
+      if (inst.type === 'LEGACY_PAID') return;
+      // Cuota futura pendiente: aún no le corresponde
+      if (inst.status === 'PENDING' && dueMonth > currentMonth) return;
+
+      // ─── CASOS QUE SÍ DESCUENTAN ───────────────────────────
+      // 1) Cuota pendiente del mes actual o vencida (deuda corriente)
+      if (inst.status === 'PENDING' && dueMonth <= currentMonth) {
+        total += installmentAmount;
         return;
       }
-      // PAID tipo ADVANCED: ya se debitó al marcarla, no descuenta otra vez
+      // 2) Cuota del mes actual ya pagada (egreso confirmado del mes)
+      if (inst.status === 'PAID' && inst.type === 'CURRENT_PAID') {
+        total += installmentAmount;
+        return;
+      }
+      // 3) Cuota futura pagada por adelantado (ya se debitó al marcar)
       if (inst.status === 'PAID' && inst.type === 'ADVANCED') {
+        total += installmentAmount;
         return;
-      }
-      // PENDING
-      if (inst.status === 'PENDING') {
-        const dueMonth = getMonthKey(inst.dueDate);
-        if (dueMonth <= currentMonth) {
-          // Cuota del mes actual o pasada pendiente → descuenta
-          total += installmentAmount;
-        }
-        // FUTURE PENDING → no descuenta
       }
     });
   });
 
-  return total;
+  return Number(total.toFixed(2)); // evita errores de punto flotante
 }
 
 function computeBalance() {
-  const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
-  const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalInc = incomes.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const totalExp = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const deductions = computeCurrentMonthDeductions();
-  return totalInc - totalExp - deductions;
+
+  // ✅ Fórmula: Saldo = Ingresos - Gastos - Deducciones del mes
+  const balance = Number(totalInc) - Number(totalExp) - Number(deductions);
+  return Number(balance.toFixed(2));
 }
 
 function updateBalanceSummary() {
@@ -1007,31 +1020,33 @@ async function toggleInstallmentPaid(purchaseId, boxIdx) {
   const inst = p.installmentStates.find(i => i.idx === boxIdx);
   if (!inst) return;
 
-  // No permitir toggle en históricas ni legacy
+  // Históricas y legacy no son toggleables
   if (inst.type === 'HISTORICAL' || inst.type === 'LEGACY_PAID') return;
 
+  // ⚠️ Capturamos el saldo ANTES de cualquier cambio
   const previousBalance = computeBalance();
+
   const currentMonth = getCurrentMonthKey();
   const dueMonth = getMonthKey(inst.dueDate);
+  const installmentAmount = Number(p.amount) / Number(p.installments);
 
   let newStatus, newType, actionMsg;
 
   if (inst.status === 'PENDING') {
-    // Marcar como pagada
+    // ─── MARCAR COMO PAGADA → DEBE RESTAR DEL SALDO ───────
     newStatus = 'PAID';
     if (dueMonth === currentMonth) {
       newType = 'CURRENT_PAID';
       actionMsg = `Cuota ${boxIdx} pagada (mes actual)`;
     } else if (dueMonth > currentMonth) {
       newType = 'ADVANCED';
-      actionMsg = `Cuota ${boxIdx} pagada por adelantado (se debita ahora)`;
+      actionMsg = `Cuota ${boxIdx} pagada por adelantado`;
     } else {
-      // OVERDUE → marcar como pagada
       newType = 'CURRENT_PAID';
       actionMsg = `Cuota ${boxIdx} pagada (vencida)`;
     }
   } else {
-    // Desmarcar (volver a PENDING)
+    // ─── DESMARCAR → DEBE SUMAR DE VUELTA AL SALDO ────────
     newStatus = 'PENDING';
     if (dueMonth === currentMonth) newType = 'CURRENT';
     else if (dueMonth > currentMonth) newType = 'FUTURE';
@@ -1039,33 +1054,53 @@ async function toggleInstallmentPaid(purchaseId, boxIdx) {
     actionMsg = `Cuota ${boxIdx} desmarcada`;
   }
 
+  // Actualizar estado en memoria
   inst.status = newStatus;
   inst.type = newType;
-
-  // Recalcular paidCount
   const newPaidCount = p.installmentStates.filter(i => i.status === 'PAID').length;
 
+  // Persistir en Supabase
   const { error } = await supabaseDb.from('card_purchases')
     .update({ paidCount: newPaidCount, installmentStates: p.installmentStates })
-    .eq('id', purchaseId).eq('user_id', currentUserId);
+    .eq('id', purchaseId)
+    .eq('user_id', currentUserId);
 
   if (error) {
     showToast('Error: ' + error.message, 'error');
-    // Revertir en memoria
-    if (newStatus === 'PAID') { inst.status = 'PENDING'; inst.type = dueMonth === currentMonth ? 'CURRENT' : dueMonth > currentMonth ? 'FUTURE' : 'OVERDUE'; }
-    else { inst.status = 'PAID'; inst.type = dueMonth === currentMonth ? 'CURRENT_PAID' : 'ADVANCED'; }
+    // Revertir en memoria si falla
+    if (newStatus === 'PAID') {
+      inst.status = 'PENDING';
+      inst.type = dueMonth === currentMonth ? 'CURRENT'
+                : dueMonth > currentMonth ? 'FUTURE' : 'OVERDUE';
+    } else {
+      inst.status = 'PAID';
+      inst.type = dueMonth === currentMonth ? 'CURRENT_PAID' : 'ADVANCED';
+    }
     return;
   }
 
   p.paidCount = newPaidCount;
   renderInstallments();
 
+  // ⚠️ Recalcular saldo DESPUÉS del cambio
   const newBalance = computeBalance();
+
+  // 🔍 DEBUG: verificar que el signo sea correcto
+  const delta = Number(newBalance) - Number(previousBalance);
+  console.log(`[BALANCE] ${actionMsg} | Antes: $${previousBalance.toFixed(2)} → Después: $${newBalance.toFixed(2)} | Δ: $${delta.toFixed(2)}`);
+
+  // ✅ Validación de seguridad: si marcamos como pagada, el saldo DEBE bajar
+  if (newStatus === 'PAID' && delta > 0.005) {
+    console.error('⚠️ BUG DETECTADO: marcar como pagada subió el saldo. Revisar computeCurrentMonthDeductions()');
+  }
+
   animateBalance(previousBalance, newBalance);
 
-  const installmentAmount = p.amount / p.installments;
-  const delta = newStatus === 'PAID' ? `-$${installmentAmount.toFixed(2)}` : `+$${installmentAmount.toFixed(2)}`;
-  showToast(`${actionMsg} (${delta})`, 'success', 2800);
+  // Toast con delta explícito para que el usuario vea el signo
+  const deltaStr = delta >= 0
+    ? `+$${delta.toFixed(2)}`
+    : `-$${Math.abs(delta).toFixed(2)}`;
+  showToast(`${actionMsg} (${deltaStr})`, 'success', 2800);
 }
 
 function openEditPurchaseModal(id) {
