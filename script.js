@@ -18,7 +18,13 @@ const CATEGORY_LABELS = {
   'Transporte':   '🚌 Transporte',
   'Compras':      '🛍 Compras',
   'Departamento': '🏠 Departamento',
-  'Ferretería':   '🔧 Ferretería',
+  'Ferretería':   '🔨 Ferretería',
+  'Servicios':    '🔧 Servicios',
+  'Trabajo':      '💼 Trabajo',
+  'Deporte':      '⚽ Deporte',
+  'Salud':          '🏥 Salud',
+  'Salidas':        '🎬 Salidas',
+  'Suscripciones':  '📺 Suscripciones',
   'Otro':         '📦 Otro',
 };
 const CARD_CLOSE_DAY = 15;
