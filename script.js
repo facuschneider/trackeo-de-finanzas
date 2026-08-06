@@ -24,9 +24,18 @@ const supabaseDb = supabase.createClient(supabaseUrl, supabaseAnonKey);
 window.supabase = supabaseDb;
 
 const CATEGORY_LABELS = {
-  'Alimentación': '🍽 Alimentación', 'Transporte': '🚌 Transporte',
-  'Compras': '🛍 Compras', 'Departamento': '🏠 Departamento',
-  'Ferretería': '🔧 Ferretería', 'Otro': '📦 Otro',
+  'Alimentación': '🍽 Alimentación', 
+  'Transporte': '🚌 Transporte',
+  'Compras': '🛍 Compras', 
+  'Departamento': '🏠 Departamento',
+  'Ferretería': '🔧 Ferretería',
+  'Servicios':    '🔧 Servicios',
+  'Trabajo':      '💼 Trabajo',
+  'Deporte':      '⚽ Deporte',
+  'Salud':          '🏥 Salud',
+  'Salidas':        '🎬 Salidas',
+  'Suscripciones':  '📺 Suscripciones',
+  'Otro': '📦 Otro',
 };
 const CARD_CLOSE_DAY = 15; // Día de cierre de todas las tarjetas
 const EXTRA_INCOME_LABEL = '__extra__';
