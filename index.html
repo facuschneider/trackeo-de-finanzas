@@ -4,17 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gastos Familiares</title>
-<!-- Enlace al manifest -->
-<link rel="manifest" href="/manifest.json">
-
-<!-- Configuración para Android / Chrome -->
-<meta name="theme-color" content="#22c55e">
-
-<!-- Configuración especial para iOS / Safari (iPhones) -->
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Gastos">
-<link rel="apple-touch-icon" href="/icon-512.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -28,7 +17,7 @@
       <h1>Gastos Familiares</h1>
     </div>
     <div class="header-right">
-      <div class="header-total">
+      <div class="header-total" id="header-balance-wrap">
         Saldo disponible: <strong>$<span id="total-balance">0.00</span></strong>
       </div>
       <button class="btn-logout" id="btn-logout" title="Cerrar sesión">Salir</button>
@@ -37,38 +26,38 @@
 </header>
 
 <main>
-  <!-- ═══ INCOMES SECTION ═══ -->
+  <!-- ═══ INCOMES SECTION (DINÁMICA) ═══ -->
   <section class="card incomes-card">
-    <h2 class="section-label">Ingresos mensuales</h2>
-    <div class="incomes-grid">
-      <div class="income-item">
-        <label for="income-papa">Sueldo Papá</label>
-        <div class="income-input-wrap">
-          <span class="currency-prefix">$</span>
-          <input type="number" id="income-papa" min="0" step="0.01" placeholder="0.00" data-label="Sueldo Papá">
-        </div>
-        <div class="save-indicator" id="save-indicator-papa">
-          <span class="saving">Guardando…</span>
-          <span class="saved">✓ Guardado</span>
-        </div>
+    <h2 class="section-label">Ingresos fijos</h2>
+    <p class="section-subtitle">Agregá todos los sueldos o ingresos recurrentes de tu familia.</p>
+
+    <div id="incomes-list" class="incomes-list"></div>
+
+    <div class="income-add-form">
+      <input type="text" id="new-income-name" placeholder="Nombre (ej: Sueldo Facu, Freelance...)" autocomplete="off">
+      <input type="number" id="new-income-amount" placeholder="Monto" min="0" step="0.01">
+      <button id="add-income" disabled>Agregar</button>
+    </div>
+
+    <!-- ═══ EXTRA MONEY MODULE ═══ -->
+    <div class="extra-money-section">
+      <div class="extra-money-header">
+        <h3 class="section-label">💰 Agregar dinero extra</h3>
+        <p class="form-hint">Se suma directamente al saldo disponible sin afectar tus sueldos base.</p>
       </div>
-      <div class="income-item">
-        <label for="income-mama">Sueldo Mamá</label>
+      <div class="extra-money-form">
         <div class="income-input-wrap">
           <span class="currency-prefix">$</span>
-          <input type="number" id="income-mama" min="0" step="0.01" placeholder="0.00" data-label="Sueldo Mamá">
+          <input type="number" id="extra-amount" placeholder="0.00" min="0" step="0.01">
         </div>
-        <div class="save-indicator" id="save-indicator-mama">
-          <span class="saving">Guardando…</span>
-          <span class="saved">✓ Guardado</span>
-        </div>
+        <button id="add-extra" disabled>Sumar al saldo</button>
       </div>
     </div>
+
     <div class="incomes-summary" aria-live="polite">
-      <span>Sueldo Papá: <strong>$<span id="balance-papa">0.00</span></strong></span>
-      <span>Sueldo Mamá: <strong>$<span id="balance-mama">0.00</span></strong></span>
       <span>Ingresos totales: <strong>$<span id="total-incomes">0.00</span></strong></span>
-      <span>Gastos pagados: <strong>$<span id="total-expenses-paid">0.00</span></strong></span>
+      <span>Gastos del mes: <strong>$<span id="total-expenses-paid">0.00</span></strong></span>
+      <span>Cuotas pendientes: <strong>$<span id="total-pending-installments">0.00</span></strong></span>
     </div>
   </section>
 
@@ -97,8 +86,6 @@
         </select>
         <select id="expense-source">
           <option value="" disabled selected>Origen</option>
-          <option value="Sueldo Papá">Sueldo Papá</option>
-          <option value="Sueldo Mamá">Sueldo Mamá</option>
         </select>
         <input type="date" id="expense-date">
         <button id="add-expense" disabled>Agregar</button>
@@ -244,8 +231,6 @@
     </select>
     <select id="edit-expense-source">
       <option value="" disabled selected>Origen</option>
-      <option value="Sueldo Papá">Sueldo Papá</option>
-      <option value="Sueldo Mamá">Sueldo Mamá</option>
     </select>
     <input type="date" id="edit-expense-date">
     <div class="modal-actions">
@@ -308,6 +293,32 @@
     <div class="modal-actions">
       <button class="btn-secondary" data-close="delete-card-modal">Cancelar</button>
       <button class="btn-danger" id="confirm-delete-card">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit income modal -->
+<div id="edit-income-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-income-title">
+  <div class="modal-content modal-content--compact">
+    <h2 id="edit-income-title">Editar ingreso</h2>
+    <input type="text" id="edit-income-name" placeholder="Nombre">
+    <input type="number" id="edit-income-amount" placeholder="Monto" min="0" step="0.01">
+    <div class="modal-actions">
+      <button class="btn-secondary" data-close="edit-income-modal">Cancelar</button>
+      <button class="btn-primary" id="confirm-edit-income">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete income modal -->
+<div id="delete-income-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-income-title">
+  <div class="modal-content modal-content--compact">
+    <div class="delete-icon">⚠</div>
+    <h2 id="delete-income-title">¿Eliminar ingreso?</h2>
+    <p>Esta acción no se puede deshacer.</p>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-close="delete-income-modal">Cancelar</button>
+      <button class="btn-danger" id="confirm-delete-income">Eliminar</button>
     </div>
   </div>
 </div>
