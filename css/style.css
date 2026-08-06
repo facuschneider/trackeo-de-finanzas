@@ -70,16 +70,8 @@ header {
   gap: 16px;
 }
 .header-left { display: flex; align-items: center; gap: 10px; }
-.header-left .logo-mark {
-  font-size: 26px;
-  color: var(--accent);
-  line-height: 1;
-}
-.header-left h1 {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
+.header-left .logo-mark { font-size: 26px; color: var(--accent); line-height: 1; }
+.header-left h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
 .header-right { display: flex; align-items: center; gap: 16px; }
 .header-total {
   font-size: 14px;
@@ -96,20 +88,12 @@ header {
   transition: color 0.3s ease;
 }
 
-/* ─── Balance dinámico (positivo / negativo) ─────── */
-.header-total.balance-positive {
-  border-color: var(--accent);
-  background: var(--accent-lt);
-}
+/* Balance dinámico */
+.header-total.balance-positive { border-color: var(--accent); background: var(--accent-lt); }
 .header-total.balance-positive strong { color: var(--accent-dk); }
-
-.header-total.balance-negative {
-  border-color: var(--danger);
-  background: var(--danger-lt);
-}
+.header-total.balance-negative { border-color: var(--danger); background: var(--danger-lt); }
 .header-total.balance-negative strong { color: var(--danger); }
 
-/* Animación de pulso al sumar dinero */
 @keyframes balancePulse {
   0%   { transform: scale(1); }
   30%  { transform: scale(1.06); box-shadow: 0 0 0 4px rgba(22,163,74,.25); }
@@ -117,7 +101,6 @@ header {
 }
 .header-total.balance-pulse { animation: balancePulse 0.7s ease; }
 
-/* Animación de shake cuando queda negativo */
 @keyframes balanceShake {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-4px); }
@@ -199,10 +182,7 @@ main {
   transition: all var(--transition);
   animation: fadeIn 0.3s ease;
 }
-.income-item-dynamic:hover {
-  border-color: var(--accent);
-  background: var(--accent-lt);
-}
+.income-item-dynamic:hover { border-color: var(--accent); background: var(--accent-lt); }
 .income-item-info { flex: 1; min-width: 0; }
 .income-item-name {
   font-size: 14px;
@@ -219,11 +199,7 @@ main {
   color: var(--accent-dk);
   font-variant-numeric: tabular-nums;
 }
-.income-item-actions {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-}
+.income-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
 
 .incomes-list-empty {
   grid-column: 1 / -1;
@@ -236,11 +212,12 @@ main {
   background: var(--bg);
 }
 
+/* ─── Formulario agregar sueldo (CORREGIDO) ───────── */
 .income-add-form {
   display: grid;
   grid-template-columns: 2fr 1fr auto;
   gap: 10px;
-  align-items: center;
+  align-items: stretch;
   padding: 16px;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -258,13 +235,20 @@ main {
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition);
   min-width: 0;
+  height: 40px;
 }
 .income-add-form input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(22,163,74,.12);
 }
+.income-add-form .btn-primary {
+  padding: 0 20px;
+  height: 40px;
+  margin: 0;
+  white-space: nowrap;
+}
 
-/* ─── Extra Money Section ──────────────────────────── */
+/* ─── Extra Money Section (CORREGIDO) ──────────────── */
 .extra-money-section {
   background: linear-gradient(135deg, var(--accent-lt) 0%, #F0FDF4 100%);
   border: 1px solid var(--accent);
@@ -286,32 +270,45 @@ main {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
+  align-items: stretch;
+}
+.extra-money-form .income-input-wrap {
+  position: relative;
+  display: flex;
   align-items: center;
 }
-.extra-money-form .income-input-wrap input {
-  background: var(--surface);
+.extra-money-form .currency-prefix {
+  position: absolute;
+  left: 14px;
+  color: var(--muted);
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 1;
 }
-.extra-money-form button {
-  padding: 11px 20px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
+.extra-money-form .income-input-wrap input {
+  width: 100%;
+  padding: 10px 14px 10px 32px;
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-family: var(--font);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  height: 40px;
+}
+.extra-money-form .income-input-wrap input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(22,163,74,.12);
+}
+.extra-money-form .btn-primary {
+  padding: 0 20px;
+  height: 40px;
+  margin: 0;
   white-space: nowrap;
-  transition: all var(--transition);
 }
-.extra-money-form button:hover:not(:disabled) {
-  background: var(--accent-dk);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(22,163,74,.25);
-}
-.extra-money-form button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Animación de confirmación al sumar dinero extra */
 @keyframes extraConfirm {
   0%   { transform: scale(1); background: linear-gradient(135deg, var(--accent-lt) 0%, #F0FDF4 100%); }
   40%  { transform: scale(1.015); background: linear-gradient(135deg, #BBF7D0 0%, var(--accent-lt) 100%); box-shadow: 0 0 0 4px rgba(22,163,74,.2); }
@@ -319,6 +316,32 @@ main {
 }
 .extra-money-section.extra-pulse { animation: extraConfirm 0.7s ease; }
 
+/* ─── NUEVA: Movimientos de Ingresos ───────────────── */
+.income-movements-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 20px;
+}
+.income-movements-section .table-header {
+  margin-bottom: 14px;
+}
+.income-movements-section .table-header .section-label {
+  margin-bottom: 0;
+}
+.income-type-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.income-type-pill.salary { background: #DBEAFE; color: #1E40AF; }
+.income-type-pill.extra  { background: #FEF3C7; color: #92400E; }
+
+/* ─── Summary ──────────────────────────────────────── */
 .incomes-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -354,11 +377,7 @@ main {
   transition: all var(--transition);
 }
 .tab:hover { color: var(--text); background: var(--bg); }
-.tab.active {
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(22,163,74,.3);
-}
+.tab.active { background: var(--accent); color: #fff; box-shadow: 0 1px 3px rgba(22,163,74,.3); }
 .tab-panel { display: none; animation: fadeIn 0.3s ease; }
 .tab-panel.active { display: flex; flex-direction: column; gap: 20px; }
 
@@ -501,6 +520,7 @@ tbody tr:last-child td { border-bottom: none; }
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+.amount-cell.positive { color: var(--accent-dk); }
 .empty-row td {
   text-align: center;
   padding: 40px 20px;

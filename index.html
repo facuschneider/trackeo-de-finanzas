@@ -36,7 +36,7 @@
     <div class="income-add-form">
       <input type="text" id="new-income-name" placeholder="Nombre (ej: Sueldo Facu, Freelance...)" autocomplete="off">
       <input type="number" id="new-income-amount" placeholder="Monto" min="0" step="0.01">
-      <button id="add-income" disabled>Agregar</button>
+      <button id="add-income" class="btn-primary" disabled>Agregar</button>
     </div>
 
     <!-- ═══ EXTRA MONEY MODULE ═══ -->
@@ -50,14 +50,43 @@
           <span class="currency-prefix">$</span>
           <input type="number" id="extra-amount" placeholder="0.00" min="0" step="0.01">
         </div>
-        <button id="add-extra" disabled>Sumar al saldo</button>
+        <button id="add-extra" class="btn-primary" disabled>Sumar al saldo</button>
+      </div>
+    </div>
+
+    <!-- ═══ NUEVA: MOVIMIENTOS DE INGRESOS ═══ -->
+    <div class="income-movements-section">
+      <div class="table-header">
+        <h2 class="section-label">Movimientos de ingresos</h2>
+        <div class="filter-wrap">
+          <label for="income-type-filter">Tipo</label>
+          <select id="income-type-filter">
+            <option value="All">Todos</option>
+            <option value="salary">Solo sueldos</option>
+            <option value="extra">Solo dinero extra</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th>Tipo</th>
+              <th>Monto</th>
+              <th>Fecha</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="income-table"></tbody>
+        </table>
       </div>
     </div>
 
     <div class="incomes-summary" aria-live="polite">
       <span>Ingresos totales: <strong>$<span id="total-incomes">0.00</span></strong></span>
       <span>Gastos del mes: <strong>$<span id="total-expenses-paid">0.00</span></strong></span>
-      <span>Cuotas pendientes: <strong>$<span id="total-pending-installments">0.00</span></strong></span>
+      <span>Cuotas pagadas: <strong>$<span id="total-paid-installments">0.00</span></strong></span>
     </div>
   </section>
 

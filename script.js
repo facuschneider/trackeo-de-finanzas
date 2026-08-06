@@ -1,11 +1,10 @@
 /* ═══════════════════════════════════════════════════════════
    Gastos Familiares — Script principal
-   Refactorizado:
-   - Sueldos dinámicos (N ingresos personalizables)
-   - Dinero extra simple con animación
-   - Balance dinámico con color según signo
-   - Cuotas pendientes descuentan del saldo en tiempo real
-   - Selector de origen poblado dinámicamente desde los sueldos
+   FIX CRÍTICO: La fórmula del balance ahora resta las CUOTAS
+   PAGADAS (no las pendientes). Así al marcar una cuota como
+   pagada el saldo BAJA correctamente.
+   Fórmula correcta:
+     balance = ingresos - gastos - cuotas_pagadas
 ═══════════════════════════════════════════════════════════ */
 
 const supabaseUrl = window.ENV.SUPABASE_URL;
@@ -18,7 +17,7 @@ const CATEGORY_LABELS = {
   'Transporte':   '🚌 Transporte',
   'Compras':      '🛍 Compras',
   'Departamento': '🏠 Departamento',
-  'Ferretería':   '🔨 Ferretería',
+  'Ferretería':   '🔧 Ferretería',
   'Servicios':    '🔧 Servicios',
   'Trabajo':      '💼 Trabajo',
   'Deporte':      '⚽ Deporte',
@@ -28,11 +27,11 @@ const CATEGORY_LABELS = {
   'Otro':         '📦 Otro',
 };
 const CARD_CLOSE_DAY = 15;
-const EXTRA_INCOME_LABEL = '__extra__'; // Label reservado para dinero extra
+const EXTRA_INCOME_LABEL = '__extra__';
 
 /* ─── State ────────────────────────────────────────── */
 let expenses  = [];
-let incomes   = [];   // Incluye sueldos + extras
+let incomes   = [];
 let cards     = [];
 let purchases = [];
 let currentUserId = null;
@@ -45,14 +44,18 @@ let deletingCardId     = null;
 let editingIncomeId    = null;
 let deletingIncomeId   = null;
 
-/* ─── DOM: Incomes (dinámicos) ─────────────────────── */
-const incomesListEl       = document.getElementById('incomes-list');
-const newIncomeNameInput  = document.getElementById('new-income-name');
+/* ─── DOM: Incomes ─────────────────────────────────── */
+const incomesListEl        = document.getElementById('incomes-list');
+const newIncomeNameInput   = document.getElementById('new-income-name');
 const newIncomeAmountInput = document.getElementById('new-income-amount');
-const addIncomeBtn        = document.getElementById('add-income');
-const extraAmountInput    = document.getElementById('extra-amount');
-const addExtraBtn         = document.getElementById('add-extra');
-const extraSection        = document.querySelector('.extra-money-section');
+const addIncomeBtn         = document.getElementById('add-income');
+const extraAmountInput     = document.getElementById('extra-amount');
+const addExtraBtn          = document.getElementById('add-extra');
+const extraSection         = document.querySelector('.extra-money-section');
+
+/* ─── NUEVO DOM: Tabla movimientos de ingresos ────── */
+const incomeTableEl      = document.getElementById('income-table');
+const incomeTypeFilterEl = document.getElementById('income-type-filter');
 
 /* ─── DOM: Expenses ────────────────────────────────── */
 const expenseTable     = document.getElementById('expense-table');
@@ -82,13 +85,12 @@ const installmentsListEl        = document.getElementById('installments-list');
 const cardSummaryEl             = document.getElementById('card-summary');
 
 /* ─── DOM: Summary ─────────────────────────────────── */
-const totalBalanceEl           = document.getElementById('total-balance');
-const headerBalanceWrap        = document.getElementById('header-balance-wrap');
-const totalIncomesEl           = document.getElementById('total-incomes');
-const totalExpensesPaidEl      = document.getElementById('total-expenses-paid');
-const totalPendingInstallEl    = document.getElementById('total-pending-installments');
+const totalBalanceEl        = document.getElementById('total-balance');
+const headerBalanceWrap     = document.getElementById('header-balance-wrap');
+const totalIncomesEl        = document.getElementById('total-incomes');
+const totalExpensesPaidEl   = document.getElementById('total-expenses-paid');
+const totalPaidInstallEl    = document.getElementById('total-paid-installments');
 
-/* ─── DOM: Logout ──────────────────────────────────── */
 const btnLogout = document.getElementById('btn-logout');
 
 /* ═══════════════════════════════════════════════════════════
@@ -126,7 +128,7 @@ function animateNumber(el, from, to, duration = 600) {
   const start = performance.now();
   function step(now) {
     const progress = Math.min((now - start) / duration, 1);
-    const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
     const current = from + (to - from) * eased;
     el.textContent = current.toFixed(2);
     if (progress < 1) requestAnimationFrame(step);
@@ -198,6 +200,7 @@ async function loadAll() {
     purchases = purRes.data  || [];
 
     renderIncomes();
+    renderIncomeMovements();
     renderCards();
     renderCardSelectors();
     renderExpenseSourceOptions();
@@ -211,23 +214,13 @@ async function loadAll() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   INCOMES DINÁMICOS (sueldos + extras)
+   INCOMES DINÁMICOS
 ═══════════════════════════════════════════════════════════ */
 function isExtraIncome(income) {
   return income.label === EXTRA_INCOME_LABEL;
 }
-
-function getRegularIncomes() {
-  return incomes.filter(i => !isExtraIncome(i));
-}
-
-function getExtraIncomes() {
-  return incomes.filter(i => isExtraIncome(i));
-}
-
-function getTotalExtras() {
-  return getExtraIncomes().reduce((s, i) => s + (i.amount || 0), 0);
-}
+function getRegularIncomes() { return incomes.filter(i => !isExtraIncome(i)); }
+function getExtraIncomes()   { return incomes.filter(i => isExtraIncome(i)); }
 
 function renderIncomes() {
   const regular = getRegularIncomes();
@@ -259,7 +252,6 @@ function renderIncomes() {
   updateBalanceSummary();
 }
 
-/* Event delegation para lista de ingresos */
 incomesListEl.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -268,7 +260,6 @@ incomesListEl.addEventListener('click', (e) => {
   if (btn.dataset.action === 'delete-income') openDeleteIncomeModal(id);
 });
 
-/* ─── Validación de inputs para agregar sueldo ────── */
 function checkIncomeInputs() {
   const valid = newIncomeNameInput.value.trim() &&
                 newIncomeAmountInput.value &&
@@ -278,7 +269,6 @@ function checkIncomeInputs() {
 newIncomeNameInput.addEventListener('input', checkIncomeInputs);
 newIncomeAmountInput.addEventListener('input', checkIncomeInputs);
 
-/* ─── Agregar nuevo sueldo ─────────────────────────── */
 addIncomeBtn.addEventListener('click', async () => {
   const label = newIncomeNameInput.value.trim();
   const amount = parseFloat(newIncomeAmountInput.value);
@@ -299,11 +289,11 @@ addIncomeBtn.addEventListener('click', async () => {
     newIncomeAmountInput.value = '';
     addIncomeBtn.disabled = true;
     renderIncomes();
+    renderIncomeMovements();
     showToast('Ingreso agregado', 'success');
   });
 });
 
-/* ─── Editar sueldo ────────────────────────────────── */
 function openEditIncomeModal(id) {
   const inc = incomes.find(i => i.id === id);
   if (!inc || isExtraIncome(inc)) return;
@@ -338,11 +328,11 @@ document.getElementById('confirm-edit-income').addEventListener('click', async (
     if (idx > -1) incomes[idx] = { ...incomes[idx], label, amount };
     closeModal('edit-income-modal');
     renderIncomes();
+    renderIncomeMovements();
     showToast('Ingreso actualizado', 'success');
   });
 });
 
-/* ─── Eliminar sueldo ──────────────────────────────── */
 function openDeleteIncomeModal(id) {
   deletingIncomeId = id;
   openModal('delete-income-modal');
@@ -364,12 +354,88 @@ document.getElementById('confirm-delete-income').addEventListener('click', async
     incomes = incomes.filter(i => i.id !== deletingIncomeId);
     closeModal('delete-income-modal');
     renderIncomes();
+    renderIncomeMovements();
     showToast('Ingreso eliminado', 'success');
   });
 });
 
 /* ═══════════════════════════════════════════════════════════
-   DINERO EXTRA (suma directa al saldo)
+   NUEVA: TABLA DE MOVIMIENTOS DE INGRESOS
+   Muestra SOLO sueldos + dinero extra (no gastos ni cuotas)
+═══════════════════════════════════════════════════════════ */
+function renderIncomeMovements() {
+  const filterType = incomeTypeFilterEl.value;
+
+  let filtered = incomes.slice();
+
+  if (filterType === 'salary') {
+    filtered = filtered.filter(i => !isExtraIncome(i));
+  } else if (filterType === 'extra') {
+    filtered = filtered.filter(i => isExtraIncome(i));
+  }
+
+  // Ordenar: más recientes primero (por id desc, asumiendo que es autoincremental)
+  filtered.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+  incomeTableEl.innerHTML = '';
+
+  if (filtered.length === 0) {
+    const row = document.createElement('tr');
+    row.className = 'empty-row';
+    row.innerHTML = `
+      <td colspan="5">
+        <span class="empty-icon">💵</span>
+        Sin movimientos de ingresos.
+      </td>`;
+    incomeTableEl.appendChild(row);
+    return;
+  }
+
+  filtered.forEach((inc, idx) => {
+    const row = document.createElement('tr');
+    if (idx === 0) row.classList.add('new-row');
+
+    const isExtra = isExtraIncome(inc);
+    const typeLabel = isExtra
+      ? '<span class="income-type-pill extra">💰 Extra</span>'
+      : '<span class="income-type-pill salary">💼 Sueldo</span>';
+    const displayName = isExtra ? 'Dinero extra' : escapeHtml(inc.label);
+    const dateStr = inc.created_at
+      ? formatDate(inc.created_at.slice(0, 10))
+      : '—';
+
+    // Solo permitir editar/eliminar sueldos (no dinero extra)
+    const actionsHtml = isExtra
+      ? `<div class="action-cell">
+           <button class="icon-btn delete" title="Eliminar" data-action="delete-income-movement" data-id="${inc.id}">🗑️</button>
+         </div>`
+      : `<div class="action-cell">
+           <button class="icon-btn edit" title="Editar" data-action="edit-income-movement" data-id="${inc.id}">✏️</button>
+           <button class="icon-btn delete" title="Eliminar" data-action="delete-income-movement" data-id="${inc.id}">🗑️</button>
+         </div>`;
+
+    row.innerHTML = `
+      <td data-label="Concepto">${displayName}</td>
+      <td data-label="Tipo">${typeLabel}</td>
+      <td data-label="Monto" class="amount-cell positive">+$${(inc.amount || 0).toFixed(2)}</td>
+      <td data-label="Fecha">${dateStr}</td>
+      <td data-label="Acciones">${actionsHtml}</td>`;
+    incomeTableEl.appendChild(row);
+  });
+}
+
+incomeTableEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  if (btn.dataset.action === 'edit-income-movement') openEditIncomeModal(id);
+  if (btn.dataset.action === 'delete-income-movement') openDeleteIncomeModal(id);
+});
+
+incomeTypeFilterEl.addEventListener('change', renderIncomeMovements);
+
+/* ═══════════════════════════════════════════════════════════
+   DINERO EXTRA
 ═══════════════════════════════════════════════════════════ */
 function checkExtraInput() {
   const amount = parseFloat(extraAmountInput.value);
@@ -401,59 +467,55 @@ addExtraBtn.addEventListener('click', async () => {
     extraAmountInput.value = '';
     addExtraBtn.disabled = true;
 
-    // Animación de confirmación en la sección
     if (extraSection) {
       extraSection.classList.remove('extra-pulse');
-      void extraSection.offsetWidth; // reflow para reiniciar animación
+      void extraSection.offsetWidth;
       extraSection.classList.add('extra-pulse');
     }
 
-    // Animación del balance (contador + pulso)
     const newBalance = computeBalance();
     animateBalance(previousBalance, newBalance);
 
     updateBalanceSummary();
+    renderIncomeMovements();
     showToast(`+$${amount.toFixed(2)} sumados al saldo`, 'success');
   });
 });
 
 /* ═══════════════════════════════════════════════════════════
-   BALANCE DINÁMICO (con cuotas pendientes)
+   BALANCE DINÁMICO — FÓRMULA CORREGIDA
+   balance = ingresos - gastos - CUOTAS_PAGADAS
+   (NO cuotas pendientes, así al pagar una el saldo BAJA)
 ═══════════════════════════════════════════════════════════ */
-function computePendingInstallments() {
-  let pending = 0;
+function computePaidInstallments() {
+  let paid = 0;
   purchases.forEach(p => {
-    const remaining = p.installments - p.paidCount;
-    if (remaining > 0) {
-      const installmentAmount = p.amount / p.installments;
-      pending += installmentAmount * remaining;
-    }
+    if (!p.amount || !p.installments) return;
+    const installmentAmount = p.amount / p.installments;
+    paid += installmentAmount * (p.paidCount || 0);
   });
-  return pending;
+  return paid;
 }
 
 function computeBalance() {
   const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const pending  = computePendingInstallments();
-  return totalInc - totalExp - pending;
+  const paidInstallments = computePaidInstallments();
+  // ✅ CORRECCIÓN: restamos las cuotas PAGADAS, no las pendientes
+  return totalInc - totalExp - paidInstallments;
 }
 
 function updateBalanceSummary() {
   const totalInc = incomes.reduce((s, i) => s + (i.amount || 0), 0);
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const pending  = computePendingInstallments();
-  const balance  = totalInc - totalExp - pending;
+  const paidInstallments = computePaidInstallments();
+  const balance = totalInc - totalExp - paidInstallments;
 
-  totalIncomesEl.textContent        = totalInc.toFixed(2);
-  totalExpensesPaidEl.textContent   = totalExp.toFixed(2);
-  totalPendingInstallEl.textContent = pending.toFixed(2);
+  totalIncomesEl.textContent      = totalInc.toFixed(2);
+  totalExpensesPaidEl.textContent = totalExp.toFixed(2);
+  totalPaidInstallEl.textContent  = paidInstallments.toFixed(2);
 
-  // Actualizar balance del header con color dinámico
-  const previousText = totalBalanceEl.textContent;
-  const newText = balance.toFixed(2);
-
-  // Aplicar color según signo
+  // Color dinámico del balance
   headerBalanceWrap.classList.remove('balance-positive', 'balance-negative');
   if (balance >= 0) {
     headerBalanceWrap.classList.add('balance-positive');
@@ -461,25 +523,20 @@ function updateBalanceSummary() {
     headerBalanceWrap.classList.add('balance-negative');
   }
 
-  // Solo animar el número si cambió
+  const previousText = totalBalanceEl.textContent;
+  const newText = balance.toFixed(2);
   if (previousText !== newText) {
     const from = parseFloat(previousText.replace(/,/g, '')) || 0;
-    const to = balance;
-    animateNumber(totalBalanceEl, from, to, 500);
+    animateNumber(totalBalanceEl, from, balance, 500);
   }
 }
 
-/* Animación de pulso en el balance (usada al sumar dinero extra) */
 function animateBalance(from, to) {
-  // Primero el contador numérico
   animateNumber(totalBalanceEl, from, to, 700);
-
-  // Luego el pulso visual
   headerBalanceWrap.classList.remove('balance-pulse', 'balance-shake');
   void headerBalanceWrap.offsetWidth;
 
   if (to < 0 && from >= 0) {
-    // Si pasó de positivo a negativo, shake
     headerBalanceWrap.classList.add('balance-shake');
   } else {
     headerBalanceWrap.classList.add('balance-pulse');
@@ -489,7 +546,6 @@ function animateBalance(from, to) {
 /* ═══════════════════════════════════════════════════════════
    EXPENSES
 ═══════════════════════════════════════════════════════════ */
-/* Poblar selector de origen dinámicamente desde los sueldos */
 function renderExpenseSourceOptions() {
   const regular = getRegularIncomes();
   const optionsHtml = '<option value="" disabled selected>Origen</option>' +
@@ -970,7 +1026,7 @@ installmentsListEl.addEventListener('click', (e) => {
   if (btn.dataset.action === 'delete-purchase') openDeletePurchaseModal(id);
 });
 
-/* ─── Toggle cuota pagada (actualiza balance en tiempo real) ─ */
+/* ─── Toggle cuota pagada — AHORA RESTA del saldo ─── */
 async function toggleInstallmentPaid(purchaseId, boxIndex) {
   const p = purchases.find(x => x.id === purchaseId);
   if (!p) return;
@@ -1000,12 +1056,17 @@ async function toggleInstallmentPaid(purchaseId, boxIndex) {
   p.paidCount = newPaidCount;
   renderInstallments();
 
-  // Actualizar balance en tiempo real con animación
+  // ✅ CORRECCIÓN: al pagar una cuota, el saldo BAJA
+  // porque computeBalance() ahora resta las cuotas pagadas
   const newBalance = computeBalance();
   animateBalance(previousBalance, newBalance);
+  updateBalanceSummary();
 
-  const action = newPaidCount > p.paidCount - 1 ? 'pagada' : 'desmarcada';
-  showToast(`Cuota ${action} — saldo actualizado`, 'success', 2000);
+  const action = newPaidCount > (p.paidCount - 1) ? 'pagada' : 'desmarcada';
+  const delta = newPaidCount > (p.paidCount - 1)
+    ? `(-$${(p.amount / p.installments).toFixed(2)})`
+    : `(+${(p.amount / p.installments).toFixed(2)})`;
+  showToast(`Cuota ${action} ${delta}`, 'success', 2500);
 }
 
 function openEditPurchaseModal(id) {
