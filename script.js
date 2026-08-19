@@ -163,49 +163,78 @@ function toNum(v) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   CICLO DE CIERRE (DÍA 15) — FUENTE DE VERDAD
-═══════════════════════════════════════════════════════════ */
+   CICLO DE CUOTAS — DÍA 15
+   ═══════════════════════════════════════════════════════════ */
 
 /**
- * Retorna la fecha de cierre del ciclo actual (YYYY-MM-DD).
- * 
- * Regla:
- * - Si hoy < 15: el ciclo actual cierra el 15 de ESTE mes
- * - Si hoy >= 15: el ciclo actual cierra el 15 del mes SIGUIENTE
+ * Devuelve la fecha del último día 15 que ya ocurrió.
  *
- * Ejemplo (día de cierre = 15):
- *   - Hoy 6 de agosto  → cierra 15/08/2026
- *   - Hoy 15 de agosto → cierra 15/09/2026
- *   - Hoy 20 de agosto → cierra 15/09/2026
+ * Ejemplos:
+ * - 10/08/2026 -> 15/07/2026
+ * - 15/08/2026 -> 15/08/2026
+ * - 19/08/2026 -> 15/08/2026
  */
-function getClosingDate() {
+function getCurrentCycleDate() {
   const now = new Date();
-  const day = now.getDate();
+
   let year = now.getFullYear();
   let month = now.getMonth();
 
-  if (day >= CARD_CLOSE_DAY) {
-    month += 1;
-    if (month > 11) { month = 0; year += 1; }
+  if (now.getDate() < CARD_CLOSE_DAY) {
+    month--;
+
+    if (month < 0) {
+      month = 11;
+      year--;
+    }
   }
-  // Construir fecha del día 15 del mes de cierre
+
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(CARD_CLOSE_DAY).padStart(2, '0')}`;
 }
 
 /**
- * Determina el estado temporal de una cuota según su fecha de vencimiento.
- * Retorna: 'OVERDUE' | 'CURRENT' | 'FUTURE'
- *
- * Regla:
- * - dueDate < closingDate → OVERDUE (ya venció)
- * - dueDate === closingDate → CURRENT (vence en este cierre)
- * - dueDate > closingDate → FUTURE (aún no le corresponde)
+ * Mantengo este nombre porque otras partes del sistema
+ * podrían usarlo.
+ */
+function getClosingDate() {
+  return getCurrentCycleDate();
+}
+
+/**
+ * Determina el estado temporal de una cuota respecto
+ * del ciclo actual.
  */
 function getTimeStatus(dueDate) {
-  const closing = getClosingDate();
-  if (dueDate < closing) return 'OVERDUE';
-  if (dueDate === closing) return 'CURRENT';
+  const currentCycle = getCurrentCycleDate();
+
+  if (dueDate < currentCycle) return 'OVERDUE';
+  if (dueDate === currentCycle) return 'CURRENT';
+
   return 'FUTURE';
+}
+
+/**
+ * Devuelve la fecha local actual como YYYY-MM-DD.
+ */
+function getTodayLocalDate() {
+  const now = new Date();
+
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Determina si una fecha pertenece al ciclo actual.
+ *
+ * Un ciclo va desde el día 15 inclusive
+ * hasta el día 15 del mes siguiente.
+ */
+function isDateInCurrentCycle(dateStr) {
+  if (!dateStr) return false;
+
+  const currentCycle = getCurrentCycleDate();
+  const nextCycle = addMonths(currentCycle, 1);
+
+  return dateStr >= currentCycle && dateStr < nextCycle;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -228,13 +257,24 @@ function generateInstallmentStates(installments, firstDate, startFrom = 1) {
     const dueDate = addMonths(firstDate, i);
 
     if (idx < start) {
-      // Cuota histórica: pagada ANTES de registrar la compra
-      states.push({ idx, status: 'PAID', type: 'HISTORICAL', dueDate });
+      states.push({
+        idx,
+        status: 'PAID',
+        type: 'HISTORICAL',
+        dueDate,
+        paidAt: null
+      });
     } else {
-      // Cuota regular pendiente
-      states.push({ idx, status: 'PENDING', type: 'REGULAR', dueDate });
+      states.push({
+        idx,
+        status: 'PENDING',
+        type: 'REGULAR',
+        dueDate,
+        paidAt: null
+      });
     }
   }
+
   return states;
 }
 
@@ -243,34 +283,116 @@ function generateInstallmentStates(installments, firstDate, startFrom = 1) {
  * Si installmentStates está vacío o ausente, se autogenera.
  */
 function ensureInstallmentStates(p) {
-  // Si ya tiene estados válidos, no hacer nada
   if (Array.isArray(p.installmentStates) && p.installmentStates.length > 0) {
     return;
   }
 
-  // Migración desde paidCount: asumimos que las primeras N cuotas están pagadas
-  // y las marcamos como REGULAR PAID (no HISTORICAL, porque sí afectaron el saldo en su momento)
   const installments = toNum(p.installments) || 1;
   const paidCount = toNum(p.paidCount) || 0;
-  const firstDate = p.firstInstallmentDate || p.purchaseDate || new Date().toISOString().slice(0, 10);
+  const firstDate =
+    p.firstInstallmentDate ||
+    p.purchaseDate ||
+    new Date().toISOString().slice(0, 10);
+
   const startFrom = toNum(p.startFrom) || 1;
 
   p.installmentStates = [];
+
   for (let i = 0; i < installments; i++) {
     const idx = i + 1;
     const dueDate = addMonths(firstDate, i);
 
     if (idx < startFrom) {
-      // Histórica (anterior al registro)
-      p.installmentStates.push({ idx, status: 'PAID', type: 'HISTORICAL', dueDate });
+      p.installmentStates.push({
+        idx,
+        status: 'PAID',
+        type: 'HISTORICAL',
+        dueDate,
+        paidAt: null
+      });
+
     } else if (idx <= paidCount) {
-      // Pagada en su momento (legacy)
-      p.installmentStates.push({ idx, status: 'PAID', type: 'REGULAR', dueDate });
+      // Ya figuraba como pagada en datos antiguos.
+      // No asumimos que fue pagada en el ciclo actual.
+      p.installmentStates.push({
+        idx,
+        status: 'PAID',
+        type: 'REGULAR',
+        dueDate,
+        paidAt: null
+      });
+
     } else {
-      // Pendiente
-      p.installmentStates.push({ idx, status: 'PENDING', type: 'REGULAR', dueDate });
+      p.installmentStates.push({
+        idx,
+        status: 'PENDING',
+        type: 'REGULAR',
+        dueDate,
+        paidAt: null
+      });
     }
   }
+}
+
+async function syncAutomaticInstallments() {
+  const currentCycle = getCurrentCycleDate();
+  const today = getTodayLocalDate();
+
+  const changedPurchases = [];
+
+  for (const p of purchases) {
+    ensureInstallmentStates(p);
+
+    let changed = false;
+
+    p.installmentStates.forEach(inst => {
+      if (inst.type !== 'REGULAR') return;
+
+      if (
+        inst.status === 'PENDING' &&
+        inst.dueDate <= currentCycle
+      ) {
+        inst.status = 'PAID';
+
+        // Registramos cuándo se hizo el reconocimiento automático.
+        // Para la cuota del ciclo actual usamos el propio día 15.
+        inst.paidAt = inst.dueDate === currentCycle
+          ? currentCycle
+          : today;
+
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      p.paidCount = p.installmentStates.filter(
+        inst => inst.status === 'PAID'
+      ).length;
+
+      changedPurchases.push(p);
+    }
+  }
+
+  // Guardar cambios en Supabase
+  for (const p of changedPurchases) {
+    const { error } = await supabaseDb
+      .from('card_purchases')
+      .update({
+        paidCount: p.paidCount,
+        installmentStates: p.installmentStates
+      })
+      .eq('id', p.id)
+      .eq('user_id', currentUserId);
+
+    if (error) {
+      console.error(
+        'Error sincronizando cuotas automáticas:',
+        error
+      );
+    }
+  }
+
+  return changedPurchases.length;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -292,26 +414,52 @@ function ensureInstallmentStates(p) {
 function computeCurrentDeductions() {
   let total = 0;
 
+  const currentCycle = getCurrentCycleDate();
+
   purchases.forEach(p => {
     ensureInstallmentStates(p);
+
     const amount = toNum(p.amount);
     const installments = toNum(p.installments) || 1;
     const installmentAmount = amount / installments;
-    if (!isFinite(installmentAmount) || installmentAmount <= 0) return;
+
+    if (!isFinite(installmentAmount) || installmentAmount <= 0) {
+      return;
+    }
 
     p.installmentStates.forEach(inst => {
-      // Regla 1: históricas nunca descuentan
-      if (inst.type === 'HISTORICAL') return;
+      // Las históricas nunca afectan el saldo actual.
+      if (inst.type === 'HISTORICAL') {
+        return;
+      }
 
-      if (inst.status === 'PENDING') {
-        // Regla 2 y 3: solo descuentan si ya venció o vence en este ciclo
-        const timeStatus = getTimeStatus(inst.dueDate);
-        if (timeStatus === 'OVERDUE' || timeStatus === 'CURRENT') {
-          total += installmentAmount;
-        }
-        // FUTURE → no descuenta
-      } else if (inst.status === 'PAID') {
-        // Regla 4: cualquier cuota REGULAR pagada descuenta
+      /*
+       * 1) Cuota correspondiente al ciclo actual.
+       *
+       * Ejemplo:
+       * 15/08/2026 -> se descuenta la cuota con dueDate
+       * 2026-08-15.
+       */
+      if (
+        inst.status === 'PAID' &&
+        inst.dueDate === currentCycle
+      ) {
+        total += installmentAmount;
+        return;
+      }
+
+      /*
+       * 2) Adelanto.
+       *
+       * Una cuota futura puede haber sido pagada manualmente
+       * durante el ciclo actual.
+       */
+      if (
+        inst.status === 'PAID' &&
+        inst.dueDate > currentCycle &&
+        inst.paidAt &&
+        isDateInCurrentCycle(inst.paidAt)
+      ) {
         total += installmentAmount;
       }
     });
@@ -407,7 +555,10 @@ async function loadAll() {
     purchases = (purRes.data || []).map(p => {
       ensureInstallmentStates(p);
       return p;
-    });
+      });
+
+      // Actualizar automáticamente las cuotas cuyo vencimiento ya llegó
+      await syncAutomaticInstallments();
 
     renderIncomes();
     renderIncomeMovements();
@@ -847,6 +998,7 @@ addPurchaseBtn.addEventListener('click', async () => {
     const newPurchase = data[0];
     ensureInstallmentStates(newPurchase);
     purchases.unshift(newPurchase);
+    await syncAutomaticInstallments();
 
     purchaseNameInput.value = '';
     purchaseAmountInput.value = '';
@@ -1098,13 +1250,22 @@ async function toggleInstallmentPaid(purchaseId, boxIdx) {
   let newStatus, actionMsg;
   if (inst.status === 'PENDING') {
     newStatus = 'PAID';
+
     const timeStatus = getTimeStatus(inst.dueDate);
+
     actionMsg = timeStatus === 'FUTURE'
-      ? `Cuota ${boxIdx} pagada por adelantado`
-      : `Cuota ${boxIdx} pagada`;
+    ? `Cuota ${boxIdx} pagada por adelantado`
+    : `Cuota ${boxIdx} pagada`;
+
+  // Registrar cuándo se pagó
+    inst.paidAt = getTodayLocalDate();
+
   } else {
     newStatus = 'PENDING';
     actionMsg = `Cuota ${boxIdx} desmarcada`;
+
+  // Si se desmarca, ya no consideramos ese pago
+    inst.paidAt = null;
   }
 
   inst.status = newStatus;
@@ -1190,7 +1351,7 @@ $('confirm-edit-purchase').addEventListener('click', async () => {
     let newStates = p.installmentStates;
     if (installments !== toNum(p.installments) || firstDate !== p.firstInstallmentDate) {
       const preserved = {};
-      p.installmentStates.forEach(s => { preserved[s.idx] = { status: s.status, type: s.type }; });
+      p.installmentStates.forEach(s => { preserved[s.idx] = { status: s.status, type: s.type, paidAt: s.paidAt || null }; });
       newStates = [];
       for (let i = 0; i < installments; i++) {
         const idx = i + 1;
