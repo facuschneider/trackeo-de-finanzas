@@ -442,7 +442,8 @@ function computeCurrentDeductions() {
 function computeBalance() {
   const totalInc = incomes.reduce((s, i) => s + toNum(i.amount), 0);
   const totalExp = expenses.reduce((s, e) => s + toNum(e.amount), 0);
-  const deductions = computeCurrentDeductions();
+  const deductions = computeCurrentDeductions(); // <--- Llamamos a los $282.689
+
   return Number((totalInc - totalExp - deductions).toFixed(2));
 }
 
@@ -450,21 +451,23 @@ function updateBalanceSummary() {
   const totalInc = incomes.reduce((s, i) => s + toNum(i.amount), 0);
   const totalExp = expenses.reduce((s, e) => s + toNum(e.amount), 0);
   const deductions = computeCurrentDeductions();
+  
   const balance = Number((totalInc - totalExp - deductions).toFixed(2));
 
-  totalIncomesEl.textContent = totalInc.toFixed(2);
-  totalExpensesPaidEl.textContent = totalExp.toFixed(2);
-  totalCurrentDeductionsEl.textContent = deductions.toFixed(2);
+  // Actualizar textos de las tarjetas
+  if (totalIncomesEl) totalIncomesEl.textContent = totalInc.toFixed(2);
+  if (totalExpensesPaidEl) totalExpensesPaidEl.textContent = totalExp.toFixed(2);
+  if (totalCurrentDeductionsEl) totalCurrentDeductionsEl.textContent = deductions.toFixed(2);
 
-  // Color dinámico del balance
-  headerBalanceWrap.classList.remove('balance-positive', 'balance-negative');
-  headerBalanceWrap.classList.add(balance >= 0 ? 'balance-positive' : 'balance-negative');
+  // Forzar actualización del saldo principal en pantalla
+  if (totalBalanceEl) {
+    totalBalanceEl.textContent = balance.toFixed(2);
+  }
 
-  const previousText = totalBalanceEl.textContent;
-  const newText = balance.toFixed(2);
-  if (previousText !== newText) {
-    const from = parseFloat(previousText.replace(/,/g, '')) || 0;
-    animateNumber(totalBalanceEl, from, balance, 500);
+  // Estilo visual verde/rojo
+  if (headerBalanceWrap) {
+    headerBalanceWrap.classList.remove('balance-positive', 'balance-negative');
+    headerBalanceWrap.classList.add(balance >= 0 ? 'balance-positive' : 'balance-negative');
   }
 }
 
