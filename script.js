@@ -469,26 +469,50 @@ function computeCurrentDeductions() {
 }
 
 function computeBalance() {
-  const totalInc = incomes.reduce((s, i) => s + toNum(i.amount), 0);
-  const totalExp = expenses.reduce((s, e) => s + toNum(e.amount), 0);
+  const currentCycle = getCurrentCycleDate();
+
+  // 1. Filtrar solo ingresos del ciclo actual (usando created_at o fecha)
+  const totalInc = incomes
+    .filter(i => i.created_at && isDateInCurrentCycle(i.created_at.slice(0, 10)))
+    .reduce((s, i) => s + toNum(i.amount), 0);
+
+  // 2. Filtrar solo gastos comunes del ciclo actual
+  const totalExp = expenses
+    .filter(e => e.date && isDateInCurrentCycle(e.date))
+    .reduce((s, e) => s + toNum(e.amount), 0);
+
+  // 3. Tarjetas / Cuotas del ciclo actual
   const deductions = computeCurrentDeductions();
+
   return Number((totalInc - totalExp - deductions).toFixed(2));
 }
 
 function updateBalanceSummary() {
-  const totalInc = incomes.reduce((s, i) => s + toNum(i.amount), 0);
-  const totalExp = expenses.reduce((s, e) => s + toNum(e.amount), 0);
+  // 1. Filtrar ingresos y gastos del ciclo
+  const totalInc = incomes.reduce((s, i) => {
+    if (isExtraIncome(i)) {
+      return isDateInCurrentCycle(i.created_at?.slice(0, 10)) ? s + toNum(i.amount) : s;
+    }
+    return s + toNum(i.amount);
+  }, 0);
+
+  const totalExp = expenses
+    .filter(e => e.date && isDateInCurrentCycle(e.date))
+    .reduce((s, e) => s + toNum(e.amount), 0);
+
   const deductions = computeCurrentDeductions();
   const balance = Number((totalInc - totalExp - deductions).toFixed(2));
 
+  // 2. Actualizar textos en pantalla
   totalIncomesEl.textContent = totalInc.toFixed(2);
   totalExpensesPaidEl.textContent = totalExp.toFixed(2);
   totalCurrentDeductionsEl.textContent = deductions.toFixed(2);
 
-  // Color dinámico del balance
+  // 3. COLOR DINÁMICO DEL BALANCE (Las líneas que se habían borrado)
   headerBalanceWrap.classList.remove('balance-positive', 'balance-negative');
   headerBalanceWrap.classList.add(balance >= 0 ? 'balance-positive' : 'balance-negative');
 
+  // 4. Animación del número
   const previousText = totalBalanceEl.textContent;
   const newText = balance.toFixed(2);
   if (previousText !== newText) {
