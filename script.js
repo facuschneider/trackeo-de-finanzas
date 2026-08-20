@@ -413,6 +413,7 @@ async function syncAutomaticInstallments() {
  */
 function computeCurrentDeductions() {
   let total = 0;
+  const currentCycle = getCurrentCycleDate(); // Devuelve "2026-08-15"
 
   purchases.forEach(p => {
     ensureInstallmentStates(p);
@@ -424,14 +425,12 @@ function computeCurrentDeductions() {
     if (!isFinite(installmentAmount) || installmentAmount <= 0) return;
 
     p.installmentStates.forEach(inst => {
-      // 1. Ignorar cuotas históricas o pasadas
-      if (inst.type === 'HISTORICAL') return;
+      // 1. Ignorar explícitamente cuotas que fueron marcadas como históricas/viejas pasadas
+      if (inst.type === 'HISTORICAL' || inst.type === 'LEGACY_PAID') return;
 
-      // 2. SOLO contar la cuota que pertenece al ciclo ACTUAL
-      const timeStatus = getTimeStatus(inst.dueDate);
-      
-      if (timeStatus === 'CURRENT') {
-        // Se descuenta si ya la pagaste o si vence en este ciclo activo
+      // 2. Si la fecha de la cuota coincide exactamente con el ciclo actual (ej: 2026-08-15)
+      // O si el comparador de tiempo da 'CURRENT'
+      if (inst.dueDate === currentCycle || getTimeStatus(inst.dueDate) === 'CURRENT') {
         total += installmentAmount;
       }
     });
