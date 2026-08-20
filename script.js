@@ -413,7 +413,6 @@ async function syncAutomaticInstallments() {
  */
 function computeCurrentDeductions() {
   let total = 0;
-
   const currentCycle = getCurrentCycleDate();
 
   purchases.forEach(p => {
@@ -423,43 +422,24 @@ function computeCurrentDeductions() {
     const installments = toNum(p.installments) || 1;
     const installmentAmount = amount / installments;
 
-    if (!isFinite(installmentAmount) || installmentAmount <= 0) {
-      return;
-    }
+    if (!isFinite(installmentAmount) || installmentAmount <= 0) return;
 
     p.installmentStates.forEach(inst => {
-      // Las históricas nunca afectan el saldo actual.
-      if (inst.type === 'HISTORICAL') {
-        return;
-      }
+      // 1. Las históricas no se cuentan jamás
+      if (inst.type === 'HISTORICAL') return;
 
-      /*
-       * 1) Cuota correspondiente al ciclo actual.
-       *
-       * Ejemplo:
-       * 15/08/2026 -> se descuenta la cuota con dueDate
-       * 2026-08-15.
-       */
-      if (
-        inst.status === 'PAID' &&
-        inst.dueDate === currentCycle
-      ) {
+      // 2. CORRECCIÓN CLAVE:
+      // Si la cuota vence en este ciclo (o está vencida), DEBE descontarse
+      // sin importar si figura como PENDING o PAID.
+      const timeStatus = getTimeStatus(inst.dueDate);
+      
+      if (timeStatus === 'CURRENT' || timeStatus === 'OVERDUE') {
         total += installmentAmount;
         return;
       }
 
-      /*
-       * 2) Adelanto.
-       *
-       * Una cuota futura puede haber sido pagada manualmente
-       * durante el ciclo actual.
-       */
-      if (
-        inst.status === 'PAID' &&
-        inst.dueDate > currentCycle &&
-        inst.paidAt &&
-        isDateInCurrentCycle(inst.paidAt)
-      ) {
+      // 3. Si es una cuota futura pero la pagaste por adelantado en este ciclo
+      if (inst.status === 'PAID' && inst.dueDate > currentCycle && inst.paidAt && isDateInCurrentCycle(inst.paidAt)) {
         total += installmentAmount;
       }
     });
