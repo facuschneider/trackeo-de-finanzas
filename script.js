@@ -413,7 +413,6 @@ async function syncAutomaticInstallments() {
  */
 function computeCurrentDeductions() {
   let total = 0;
-  const currentCycle = getCurrentCycleDate();
 
   purchases.forEach(p => {
     ensureInstallmentStates(p);
@@ -425,21 +424,14 @@ function computeCurrentDeductions() {
     if (!isFinite(installmentAmount) || installmentAmount <= 0) return;
 
     p.installmentStates.forEach(inst => {
-      // 1. Las históricas no se cuentan jamás
+      // 1. Ignorar cuotas históricas o pasadas
       if (inst.type === 'HISTORICAL') return;
 
-      // 2. CORRECCIÓN CLAVE:
-      // Si la cuota vence en este ciclo (o está vencida), DEBE descontarse
-      // sin importar si figura como PENDING o PAID.
+      // 2. SOLO contar la cuota que pertenece al ciclo ACTUAL
       const timeStatus = getTimeStatus(inst.dueDate);
       
-      if (timeStatus === 'CURRENT' || timeStatus === 'OVERDUE') {
-        total += installmentAmount;
-        return;
-      }
-
-      // 3. Si es una cuota futura pero la pagaste por adelantado en este ciclo
-      if (inst.status === 'PAID' && inst.dueDate > currentCycle && inst.paidAt && isDateInCurrentCycle(inst.paidAt)) {
+      if (timeStatus === 'CURRENT') {
+        // Se descuenta si ya la pagaste o si vence en este ciclo activo
         total += installmentAmount;
       }
     });
