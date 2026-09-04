@@ -130,9 +130,12 @@ emailInput.addEventListener('keydown', e => {
 });
 
 /* ─── Escuchador global para cierre de sesión ──────── */
-supabaseDb.auth.onAuthStateChange((event, session) => {
+supabaseDb.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT') {
-    window.location.href = 'login.html';
+    const page = (window.location.pathname.split('/').pop() || '').toLowerCase();
+    if (page !== 'login.html' && page !== 'register.html') {
+      window.location.href = 'login.html';
+    }
   }
 });
 
